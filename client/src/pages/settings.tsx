@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { QRCodeSVG } from "qrcode.react";
 import { 
   Settings2, MapPin, Database, Save, Plus, Edit3, 
-  Trash2, Loader2, Building2, CheckCircle2 
+  Trash2, Loader2, Building2, CheckCircle2, QrCode,
+  Printer, X, Eye
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +14,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, useCurrentHospital, useIsHQ } from "@/lib/auth-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -47,6 +51,9 @@ export default function SettingsPage() {
   const isHQ = useIsHQ();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("locations");
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [showQRDialog, setShowQRDialog] = useState(false);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const hospitalId = currentHospital?.id;
 
@@ -66,6 +73,11 @@ export default function SettingsPage() {
 
   const isLoading = categoriesLoading || locationsLoading || coefficientsLoading;
 
+  const handleShowQR = (location: Location) => {
+    setSelectedLocation(location);
+    setShowQRDialog(true);
+  };
+
   if (isLoading) {
     return <SettingsSkeleton />;
   }
@@ -84,7 +96,7 @@ export default function SettingsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-3 h-auto">
           <TabsTrigger value="locations" className="gap-2" data-testid="tab-locations">
-            <MapPin className="h-4 w-4" />
+            <QrCode className="h-4 w-4" />
             <span className="hidden sm:inline">Mahaller</span>
           </TabsTrigger>
           <TabsTrigger value="coefficients" className="gap-2" data-testid="tab-coefficients">
@@ -103,11 +115,11 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <CardTitle className="text-sm font-medium">Mahal Listesi</CardTitle>
-                  <CardDescription>QR kod ile eşleşen lokasyonlar</CardDescription>
+                  <CardDescription>QR kod ile eşleşen lokasyonlar - Toplam: {locations?.length || 0}</CardDescription>
                 </div>
-                <Button size="sm" data-testid="button-add-location">
+                <Button size="sm" onClick={() => setShowAddDialog(true)} data-testid="button-add-location">
                   <Plus className="h-4 w-4 mr-2" />
-                  Ekle
+                  Yeni Mahal Ekle
                 </Button>
               </div>
             </CardHeader>
@@ -121,7 +133,7 @@ export default function SettingsPage() {
                       data-testid={`location-row-${location.id}`}
                     >
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <code className="text-xs font-mono bg-background px-2 py-1 rounded">
                             {location.code}
                           </code>
@@ -139,8 +151,13 @@ export default function SettingsPage() {
                         <Badge variant={location.isActive ? "default" : "secondary"}>
                           {location.isActive ? "Aktif" : "Pasif"}
                         </Badge>
-                        <Button variant="ghost" size="icon">
-                          <Edit3 className="h-4 w-4" />
+                        <Button 
+                          variant="ghost" 
+                          size="icon"
+                          onClick={() => handleShowQR(location)}
+                          data-testid={`button-qr-${location.id}`}
+                        >
+                          <QrCode className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>
@@ -148,8 +165,9 @@ export default function SettingsPage() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <MapPin className="h-8 w-8 mb-2 opacity-50" />
+                  <QrCode className="h-8 w-8 mb-2 opacity-50" />
                   <p className="text-sm">Henüz mahal tanımlanmamış</p>
+                  <p className="text-xs mt-1">Yeni mahal ekleyerek QR kodlarını oluşturabilirsiniz</p>
                 </div>
               )}
             </CardContent>
@@ -227,7 +245,299 @@ export default function SettingsPage() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <AddLocationDialog 
+        open={showAddDialog} 
+        onOpenChange={setShowAddDialog}
+        categories={categories || []}
+        hospitalId={hospitalId || ""}
+        hospitalName={currentHospital?.name || ""}
+      />
+
+      <QRCodeDialog
+        open={showQRDialog}
+        onOpenChange={setShowQRDialog}
+        location={selectedLocation}
+        hospitalName={currentHospital?.name || ""}
+      />
     </div>
+  );
+}
+
+function AddLocationDialog({ 
+  open, 
+  onOpenChange, 
+  categories,
+  hospitalId,
+  hospitalName
+}: { 
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  categories: LocationCategory[];
+  hospitalId: string;
+  hospitalName: string;
+}) {
+  const { toast } = useToast();
+  const [categoryId, setCategoryId] = useState("");
+  const [customLabel, setCustomLabel] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!categoryId) {
+      toast({
+        title: "Hata",
+        description: "Lütfen bir kategori seçin",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiRequest("POST", "/api/settings/locations", {
+        hospitalId,
+        categoryId,
+        customLabel: customLabel.trim() || null
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/locations", hospitalId] });
+      
+      toast({
+        title: "Başarılı",
+        description: "Yeni mahal oluşturuldu ve QR kodu hazır",
+      });
+      
+      setCategoryId("");
+      setCustomLabel("");
+      onOpenChange(false);
+    } catch (error) {
+      toast({
+        title: "Hata",
+        description: "Mahal oluşturulurken bir hata oluştu",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <QrCode className="h-5 w-5" />
+            Yeni Mahal Ekle
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">Hastane</Label>
+            <div className="p-3 bg-muted rounded-md">
+              <p className="text-sm font-medium">{hospitalName}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="category" className="text-sm font-medium">
+              Mahal Kategorisi <span className="text-destructive">*</span>
+            </Label>
+            <Select value={categoryId} onValueChange={setCategoryId}>
+              <SelectTrigger data-testid="select-category">
+                <SelectValue placeholder="Kategori seçin..." />
+              </SelectTrigger>
+              <SelectContent>
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>
+                    {cat.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="customLabel" className="text-sm font-medium">
+              Açıklama / Detay
+            </Label>
+            <Textarea
+              id="customLabel"
+              placeholder="Örn: 3. Kat Yatan Hasta Servisi, 2. Kat İdari Ofisler..."
+              value={customLabel}
+              onChange={(e) => setCustomLabel(e.target.value)}
+              className="resize-none"
+              rows={2}
+              data-testid="input-custom-label"
+            />
+            <p className="text-xs text-muted-foreground">
+              QR kodun yanında görünecek ek bilgi
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            İptal
+          </Button>
+          <Button 
+            onClick={handleSubmit} 
+            disabled={isSubmitting || !categoryId}
+            data-testid="button-create-location"
+          >
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <QrCode className="h-4 w-4 mr-2" />
+            )}
+            Oluştur
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function QRCodeDialog({
+  open,
+  onOpenChange,
+  location,
+  hospitalName
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  location: Location | null;
+  hospitalName: string;
+}) {
+  const printRef = useRef<HTMLDivElement>(null);
+
+  const handlePrint = () => {
+    if (!printRef.current) return;
+    
+    const printContent = printRef.current.innerHTML;
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>QR Kod - ${location?.code}</title>
+            <style>
+              body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 100vh;
+                margin: 0;
+                padding: 20px;
+                box-sizing: border-box;
+              }
+              .qr-container {
+                text-align: center;
+                padding: 24px;
+                border: 2px solid #e5e7eb;
+                border-radius: 12px;
+                max-width: 300px;
+              }
+              .qr-code {
+                margin: 16px 0;
+              }
+              .hospital-name {
+                font-size: 14px;
+                color: #6b7280;
+                margin-bottom: 8px;
+              }
+              .category-name {
+                font-size: 16px;
+                font-weight: 600;
+                margin-bottom: 4px;
+              }
+              .custom-label {
+                font-size: 14px;
+                color: #374151;
+                margin-bottom: 12px;
+              }
+              .code {
+                font-family: monospace;
+                font-size: 10px;
+                background: #f3f4f6;
+                padding: 8px 12px;
+                border-radius: 6px;
+                word-break: break-all;
+              }
+              @media print {
+                body {
+                  padding: 0;
+                }
+                .qr-container {
+                  border: 1px solid #000;
+                }
+              }
+            </style>
+          </head>
+          <body>
+            ${printContent}
+            <script>
+              window.onload = function() {
+                window.print();
+                window.onafterprint = function() {
+                  window.close();
+                };
+              };
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    }
+  };
+
+  if (!location) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <QrCode className="h-5 w-5" />
+            QR Kod
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div ref={printRef} className="flex justify-center py-4">
+          <div className="qr-container text-center p-6 border rounded-lg bg-white">
+            <p className="hospital-name text-sm text-muted-foreground mb-2">{hospitalName}</p>
+            <p className="category-name text-base font-semibold">{location.categoryName}</p>
+            {location.customLabel && (
+              <p className="custom-label text-sm text-foreground mb-3">{location.customLabel}</p>
+            )}
+            <div className="qr-code my-4">
+              <QRCodeSVG 
+                value={location.code} 
+                size={180}
+                level="H"
+                includeMargin={true}
+              />
+            </div>
+            <code className="code text-xs bg-muted px-3 py-2 rounded block font-mono">
+              {location.code}
+            </code>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Kapat
+          </Button>
+          <Button onClick={handlePrint} data-testid="button-print-qr">
+            <Printer className="h-4 w-4 mr-2" />
+            Yazdır
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -41,6 +41,7 @@ export interface IStorage {
   getLocations(hospitalId?: string): Promise<Location[]>;
   getLocationByCode(hospitalId: string, code: string): Promise<Location | undefined>;
   createLocation(location: InsertLocation): Promise<Location>;
+  updateLocation(id: string, updates: Partial<Location>): Promise<Location | undefined>;
   
   getOperationalCoefficients(hospitalId: string, period?: string): Promise<OperationalCoefficient[]>;
   upsertOperationalCoefficient(coeff: InsertOperationalCoefficient): Promise<OperationalCoefficient>;
@@ -170,6 +171,15 @@ export class DatabaseStorage implements IStorage {
   async createLocation(location: InsertLocation): Promise<Location> {
     const [created] = await db.insert(locations).values(location).returning();
     return created;
+  }
+
+  async updateLocation(id: string, updates: Partial<Location>): Promise<Location | undefined> {
+    const [updated] = await db
+      .update(locations)
+      .set(updates)
+      .where(eq(locations.id, id))
+      .returning();
+    return updated || undefined;
   }
 
   async getOperationalCoefficients(hospitalId: string, period?: string): Promise<OperationalCoefficient[]> {

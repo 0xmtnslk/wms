@@ -21,6 +21,11 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+async function hasManagerRole(userId: string): Promise<boolean> {
+  const userRoles = await storage.getUserRoles(userId);
+  return userRoles.some(ur => ur.role.name === "HQ" || ur.role.name === "HOSPITAL_MANAGER");
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -163,6 +168,74 @@ export async function registerRoutes(
       }));
       
       res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/settings/locations", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isManager = await hasManagerRole(userId);
+      
+      if (!isManager) {
+        return res.status(403).json({ error: "Only managers can create locations" });
+      }
+
+      const { hospitalId, categoryId, customLabel } = req.body;
+      
+      if (!hospitalId || !categoryId) {
+        return res.status(400).json({ error: "hospitalId and categoryId required" });
+      }
+
+      const hospital = await storage.getHospital(hospitalId);
+      if (!hospital) {
+        return res.status(404).json({ error: "Hospital not found" });
+      }
+
+      const timestamp = Date.now().toString(36).toUpperCase();
+      const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+      const code = `${hospital.code}-${timestamp}-${random}`;
+
+      const location = await storage.createLocation({
+        hospitalId,
+        categoryId,
+        customLabel: customLabel || null,
+        code,
+        isActive: true
+      });
+
+      const categories = await storage.getLocationCategories();
+      const enriched = {
+        ...location,
+        categoryName: categories.find(c => c.id === location.categoryId)?.name
+      };
+
+      res.json(enriched);
+    } catch (error) {
+      console.error("Create location error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/settings/locations/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isManager = await hasManagerRole(userId);
+      
+      if (!isManager) {
+        return res.status(403).json({ error: "Only managers can update locations" });
+      }
+
+      const { id } = req.params;
+      const { isActive } = req.body;
+
+      const updated = await storage.updateLocation(id, { isActive });
+      if (!updated) {
+        return res.status(404).json({ error: "Location not found" });
+      }
+
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }
