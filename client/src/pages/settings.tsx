@@ -50,8 +50,10 @@ interface WasteTypeCost {
   wasteTypeId: string;
   wasteTypeName: string;
   wasteTypeCode: string;
-  period: string;
+  wasteTypeColor: string;
+  effectiveFrom: string;
   costPerKg: string;
+  createdAt: string;
 }
 
 export default function SettingsPage() {
@@ -765,12 +767,12 @@ function CoefficientForm({
   );
 }
 
-const WASTE_TYPE_COLORS: Record<string, string> = {
-  medical: "#e11d48",
-  hazardous: "#f59e0b", 
-  domestic: "#64748b",
-  recycle: "#06b6d4"
-};
+interface WasteTypeInfo {
+  id: string;
+  code: string;
+  name: string;
+  colorHex: string;
+}
 
 function WasteTypeCostsForm({ 
   costs, 
@@ -780,45 +782,63 @@ function WasteTypeCostsForm({
   isEditable: boolean;
 }) {
   const { toast } = useToast();
-  const [selectedPeriod, setSelectedPeriod] = useState("2025-01");
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    costs.forEach(c => {
-      initial[c.wasteTypeId] = c.costPerKg;
-    });
-    return initial;
+  const [effectiveFrom, setEffectiveFrom] = useState(() => {
+    const today = new Date();
+    return today.toISOString().split('T')[0];
   });
+  const [values, setValues] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
+  const [showNewCostForm, setShowNewCostForm] = useState(false);
 
-  const filteredCosts = costs.filter(c => c.period === selectedPeriod);
+  const { data: wasteTypes } = useQuery<WasteTypeInfo[]>({
+    queryKey: ["/api/waste-types"],
+  });
+
+  const currentCosts = (wasteTypes || []).map(wt => {
+    const matching = costs
+      .filter(c => c.wasteTypeId === wt.id)
+      .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom));
+    return {
+      wasteType: wt,
+      currentCost: matching[0] || null,
+      history: matching
+    };
+  });
 
   const handleValueChange = (wasteTypeId: string, value: string) => {
     setValues(prev => ({ ...prev, [wasteTypeId]: value }));
-    setEditedIds(prev => new Set(prev).add(wasteTypeId));
   };
 
   const handleSave = async () => {
-    if (editedIds.size === 0) return;
+    const costsToSave = Object.entries(values).filter(([, v]) => v !== "");
+    if (costsToSave.length === 0) {
+      toast({
+        title: "Uyarı",
+        description: "Lütfen en az bir maliyet değeri girin",
+        variant: "destructive",
+      });
+      return;
+    }
     
     setIsSaving(true);
     try {
-      const costsToUpdate = Array.from(editedIds).map(wasteTypeId => ({
+      const costsData = costsToSave.map(([wasteTypeId, costPerKg]) => ({
         wasteTypeId,
-        costPerKg: parseFloat(values[wasteTypeId]) || 0
+        costPerKg: parseFloat(costPerKg) || 0
       }));
 
       await apiRequest("POST", "/api/settings/waste-type-costs", {
-        period: selectedPeriod,
-        costs: costsToUpdate
+        effectiveFrom,
+        costs: costsData
       });
 
       queryClient.invalidateQueries({ queryKey: ["/api/settings/waste-type-costs"] });
       toast({
         title: "Kaydedildi",
-        description: "Atık maliyetleri güncellendi",
+        description: `${effectiveFrom} tarihinden itibaren yeni maliyetler geçerli olacak`,
       });
-      setEditedIds(new Set());
+      setValues({});
+      setShowNewCostForm(false);
     } catch (error: any) {
       const message = error?.message?.includes("403") 
         ? "Bu işlem için yetkiniz yok" 
@@ -833,84 +853,173 @@ function WasteTypeCostsForm({
     }
   };
 
-  if (filteredCosts.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-        <DollarSign className="h-8 w-8 mb-2 opacity-50" />
-        <p className="text-sm">Bu dönem için maliyet tanımı yok</p>
-        <p className="text-xs mt-1">Seçili dönem: {selectedPeriod}</p>
-      </div>
-    );
-  }
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('tr-TR', { 
+      year: 'numeric', 
+      month: 'long', 
+      day: 'numeric' 
+    });
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-end gap-2 mb-4">
-        <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-          <SelectTrigger className="w-36" data-testid="select-cost-period">
-            <SelectValue placeholder="Dönem" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="2025-01">Ocak 2025</SelectItem>
-            <SelectItem value="2024-12">Aralık 2024</SelectItem>
-            <SelectItem value="2024-11">Kasım 2024</SelectItem>
-          </SelectContent>
-        </Select>
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h3 className="text-sm font-medium">Güncel Maliyetler</h3>
+          {isEditable && !showNewCostForm && (
+            <Button 
+              size="sm" 
+              onClick={() => setShowNewCostForm(true)}
+              data-testid="button-add-new-costs"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Yeni Maliyet Ekle
+            </Button>
+          )}
+        </div>
+
+        {currentCosts.map(({ wasteType, currentCost }) => (
+          <div 
+            key={wasteType.id} 
+            className="flex items-center gap-4 p-3 rounded-md bg-muted/50"
+            data-testid={`cost-row-${wasteType.code}`}
+          >
+            <div 
+              className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ backgroundColor: wasteType.colorHex }}
+            />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-medium">{wasteType.name}</span>
+                <Badge variant="outline" className="text-xs font-mono">
+                  {wasteType.code}
+                </Badge>
+              </div>
+              {currentCost && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {formatDate(currentCost.effectiveFrom)} tarihinden itibaren
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm font-medium">
+                {currentCost?.costPerKg || "0.00"} TL/kg
+              </span>
+            </div>
+          </div>
+        ))}
       </div>
 
-      {filteredCosts.map((cost) => (
-        <div 
-          key={cost.id} 
-          className="flex items-center gap-4 p-3 rounded-md bg-muted/50"
-          data-testid={`cost-row-${cost.wasteTypeCode}`}
-        >
-          <div 
-            className="w-3 h-3 rounded-full flex-shrink-0"
-            style={{ backgroundColor: WASTE_TYPE_COLORS[cost.wasteTypeCode] || "#888" }}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-medium">{cost.wasteTypeName}</span>
-              <Badge variant="outline" className="text-xs font-mono">
-                {cost.wasteTypeCode}
-              </Badge>
+      {showNewCostForm && isEditable && (
+        <Card>
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle className="text-sm font-medium">Yeni Maliyet Tanımı</CardTitle>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => {
+                  setShowNewCostForm(false);
+                  setValues({});
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
             </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Dönem: {cost.period}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            {isEditable ? (
-              <>
-                <Input
-                  type="number"
-                  step="0.01"
-                  className="w-24 text-right font-mono"
-                  value={values[cost.wasteTypeId] || ""}
-                  onChange={(e) => handleValueChange(cost.wasteTypeId, e.target.value)}
-                  data-testid={`input-cost-${cost.wasteTypeCode}`}
-                />
-                <span className="text-sm text-muted-foreground">TL/kg</span>
-              </>
-            ) : (
-              <span className="font-mono text-sm">
-                {cost.costPerKg} TL/kg
-              </span>
-            )}
-          </div>
-        </div>
-      ))}
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">Geçerlilik Başlangıç Tarihi</Label>
+              <Input
+                type="date"
+                value={effectiveFrom}
+                onChange={(e) => setEffectiveFrom(e.target.value)}
+                className="w-48"
+                data-testid="input-effective-from"
+              />
+              <p className="text-xs text-muted-foreground">
+                Bu tarihten itibaren aşağıdaki maliyetler geçerli olacak
+              </p>
+            </div>
 
-      {isEditable && editedIds.size > 0 && (
-        <div className="flex justify-end pt-4 border-t">
-          <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-costs">
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-2" />
-            )}
-            Kaydet
-          </Button>
+            <div className="space-y-3 pt-2">
+              {(wasteTypes || []).map((wt) => (
+                <div key={wt.id} className="flex items-center gap-4">
+                  <div 
+                    className="w-3 h-3 rounded-full flex-shrink-0"
+                    style={{ backgroundColor: wt.colorHex }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-sm">{wt.name}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      step="0.01"
+                      className="w-24 text-right font-mono"
+                      value={values[wt.id] || ""}
+                      onChange={(e) => handleValueChange(wt.id, e.target.value)}
+                      placeholder={currentCosts.find(c => c.wasteType.id === wt.id)?.currentCost?.costPerKg || "0.00"}
+                      data-testid={`input-new-cost-${wt.code}`}
+                    />
+                    <span className="text-sm text-muted-foreground">TL/kg</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button 
+                variant="outline" 
+                onClick={() => {
+                  setShowNewCostForm(false);
+                  setValues({});
+                }}
+              >
+                İptal
+              </Button>
+              <Button 
+                onClick={handleSave} 
+                disabled={isSaving || Object.values(values).every(v => !v)}
+                data-testid="button-save-costs"
+              >
+                {isSaving ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4 mr-2" />
+                )}
+                Kaydet
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {costs.length > 0 && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium">Maliyet Geçmişi</h3>
+          <div className="space-y-2">
+            {costs.map((cost) => (
+              <div 
+                key={cost.id} 
+                className="flex items-center gap-4 p-2 rounded-md text-sm"
+                data-testid={`cost-history-${cost.id}`}
+              >
+                <div 
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: cost.wasteTypeColor }}
+                />
+                <span className="text-muted-foreground min-w-24">
+                  {formatDate(cost.effectiveFrom)}
+                </span>
+                <span className="flex-1">{cost.wasteTypeName}</span>
+                <span className="font-mono">
+                  {cost.costPerKg} TL/kg
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
