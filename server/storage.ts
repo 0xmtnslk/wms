@@ -898,6 +898,90 @@ export class DatabaseStorage implements IStorage {
       tableData
     };
   }
+
+  async getCategoryComparison(hospitalId: string, metric: string): Promise<{
+    categories: {
+      id: string;
+      code: string;
+      name: string;
+      weight: number;
+      cost: number;
+      medicalKg: number;
+      hazardousKg: number;
+      domesticKg: number;
+      recycleKg: number;
+      locationCount: number;
+    }[];
+  }> {
+    const allCollections = await this.getWasteCollections();
+    const allWasteTypes = await db.select().from(wasteTypes);
+    const allCategories = await this.getLocationCategories();
+    const allLocations = await db.select().from(locations).where(eq(locations.hospitalId, hospitalId));
+
+    const hospitalCollections = allCollections.filter(c => c.hospitalId === hospitalId && c.status === 'completed');
+
+    const categoryStats: Record<string, {
+      id: string;
+      code: string;
+      name: string;
+      weight: number;
+      cost: number;
+      medicalKg: number;
+      hazardousKg: number;
+      domesticKg: number;
+      recycleKg: number;
+      locationCount: number;
+    }> = {};
+
+    allCategories.forEach(cat => {
+      const locCount = allLocations.filter(l => l.categoryId === cat.id).length;
+      categoryStats[cat.id] = {
+        id: cat.id,
+        code: cat.code,
+        name: cat.name,
+        weight: 0,
+        cost: 0,
+        medicalKg: 0,
+        hazardousKg: 0,
+        domesticKg: 0,
+        recycleKg: 0,
+        locationCount: locCount
+      };
+    });
+
+    hospitalCollections.forEach(c => {
+      const loc = allLocations.find(l => l.id === c.locationId);
+      if (!loc || !loc.categoryId || !categoryStats[loc.categoryId]) return;
+
+      const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+      const w = parseFloat(c.weightKg as string) || 0;
+      const costPerKg = wt ? parseFloat(wt.costPerKg as string) : 0;
+      const cost = w * costPerKg;
+
+      categoryStats[loc.categoryId].weight += w;
+      categoryStats[loc.categoryId].cost += cost;
+
+      if (wt?.code === 'MED') categoryStats[loc.categoryId].medicalKg += w;
+      else if (wt?.code === 'HAZ') categoryStats[loc.categoryId].hazardousKg += w;
+      else if (wt?.code === 'DOM') categoryStats[loc.categoryId].domesticKg += w;
+      else if (wt?.code === 'REC') categoryStats[loc.categoryId].recycleKg += w;
+    });
+
+    const categoriesArray = Object.values(categoryStats)
+      .filter(c => c.weight > 0 || c.locationCount > 0)
+      .sort((a, b) => {
+        switch (metric) {
+          case 'cost': return b.cost - a.cost;
+          case 'medical': return b.medicalKg - a.medicalKg;
+          case 'hazardous': return b.hazardousKg - a.hazardousKg;
+          case 'domestic': return b.domesticKg - a.domesticKg;
+          case 'recycle': return b.recycleKg - a.recycleKg;
+          default: return b.weight - a.weight;
+        }
+      });
+
+    return { categories: categoriesArray };
+  }
 }
 
 export const storage = new DatabaseStorage();

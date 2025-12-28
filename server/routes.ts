@@ -614,6 +614,25 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/detailed-analytics/category-comparison", requireAuth, async (req, res) => {
+    try {
+      const { hospitalId, metric } = req.query;
+      
+      if (!hospitalId) {
+        return res.status(400).json({ error: "Hospital ID required" });
+      }
+      
+      const data = await storage.getCategoryComparison(
+        hospitalId as string,
+        metric as string || "weight"
+      );
+      res.json(data);
+    } catch (error) {
+      console.error("Category comparison error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/reports", requireAuth, async (req, res) => {
     try {
       const { startDate, endDate, hospitalFilter, wasteTypeFilter, categoryFilter } = req.query;

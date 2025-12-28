@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { 
   Settings2, MapPin, Database, Save, Plus, Edit3, 
   Trash2, Loader2, Building2, CheckCircle2, QrCode,
-  Printer, X, Eye, DollarSign
+  Printer, X, Eye, DollarSign, ChevronDown, ChevronRight
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -66,6 +66,19 @@ export default function SettingsPage() {
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+
+  const toggleCategory = (categoryId: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev);
+      if (next.has(categoryId)) {
+        next.delete(categoryId);
+      } else {
+        next.add(categoryId);
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     if (activeTab === null) {
@@ -94,6 +107,21 @@ export default function SettingsPage() {
   });
 
   const isLoading = categoriesLoading || locationsLoading || coefficientsLoading || costsLoading || activeTab === null;
+
+  const locationsByCategory = useMemo(() => {
+    if (!locations || !categories) return new Map<string, Location[]>();
+    const grouped = new Map<string, Location[]>();
+    grouped.set("uncategorized", []);
+    categories.forEach(cat => grouped.set(cat.id, []));
+    locations.forEach(loc => {
+      if (loc.categoryId && grouped.has(loc.categoryId)) {
+        grouped.get(loc.categoryId)!.push(loc);
+      } else {
+        grouped.get("uncategorized")!.push(loc);
+      }
+    });
+    return grouped;
+  }, [locations, categories]);
 
   const handleShowQR = (location: Location) => {
     setSelectedLocation(location);
@@ -158,43 +186,113 @@ export default function SettingsPage() {
             </CardHeader>
             <CardContent>
               {locations && locations.length > 0 ? (
-                <div className="space-y-2">
-                  {locations.map((location) => (
-                    <div 
-                      key={location.id}
-                      className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate"
-                      data-testid={`location-row-${location.id}`}
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <code className="text-xs font-mono bg-background px-2 py-1 rounded">
-                            {location.code}
-                          </code>
-                          {location.categoryName && (
-                            <Badge variant="outline" className="text-xs">
-                              {location.categoryName}
-                            </Badge>
-                          )}
+                <div className="space-y-3">
+                  {categories?.map((category) => {
+                    const categoryLocations = locationsByCategory.get(category.id) || [];
+                    if (categoryLocations.length === 0) return null;
+                    const isExpanded = expandedCategories.has(category.id);
+                    return (
+                      <div key={category.id} className="border rounded-md overflow-hidden">
+                        <div 
+                          className="flex items-center justify-between gap-4 p-3 bg-muted/30 cursor-pointer hover-elevate"
+                          onClick={() => toggleCategory(category.id)}
+                          data-testid={`category-header-${category.id}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                            <span className="font-medium">{category.name}</span>
+                            <Badge variant="outline" className="text-xs">{categoryLocations.length}</Badge>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{category.unit}</span>
                         </div>
-                        {location.customLabel && (
-                          <p className="text-sm text-muted-foreground mt-1">{location.customLabel}</p>
+                        {isExpanded && (
+                          <div className="p-2 space-y-2">
+                            {categoryLocations.map((location) => (
+                              <div 
+                                key={location.id}
+                                className="flex items-center justify-between gap-4 p-3 rounded-md bg-background hover-elevate"
+                                data-testid={`location-row-${location.id}`}
+                              >
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                                      {location.code}
+                                    </code>
+                                  </div>
+                                  {location.customLabel && (
+                                    <p className="text-sm text-muted-foreground mt-1">{location.customLabel}</p>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={location.isActive ? "default" : "secondary"}>
+                                    {location.isActive ? "Aktif" : "Pasif"}
+                                  </Badge>
+                                  <Button 
+                                    variant="ghost" 
+                                    size="icon"
+                                    onClick={(e) => { e.stopPropagation(); handleShowQR(location); }}
+                                    data-testid={`button-qr-${location.id}`}
+                                  >
+                                    <QrCode className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={location.isActive ? "default" : "secondary"}>
-                          {location.isActive ? "Aktif" : "Pasif"}
-                        </Badge>
-                        <Button 
-                          variant="ghost" 
-                          size="icon"
-                          onClick={() => handleShowQR(location)}
-                          data-testid={`button-qr-${location.id}`}
-                        >
-                          <QrCode className="h-4 w-4" />
-                        </Button>
+                    );
+                  })}
+                  {(locationsByCategory.get("uncategorized") || []).length > 0 && (
+                    <div className="border rounded-md overflow-hidden">
+                      <div 
+                        className="flex items-center justify-between gap-4 p-3 bg-muted/30 cursor-pointer hover-elevate"
+                        onClick={() => toggleCategory("uncategorized")}
+                        data-testid="category-header-uncategorized"
+                      >
+                        <div className="flex items-center gap-2">
+                          {expandedCategories.has("uncategorized") ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                          <span className="font-medium text-muted-foreground">Kategorisiz</span>
+                          <Badge variant="outline" className="text-xs">{(locationsByCategory.get("uncategorized") || []).length}</Badge>
+                        </div>
                       </div>
+                      {expandedCategories.has("uncategorized") && (
+                        <div className="p-2 space-y-2">
+                          {(locationsByCategory.get("uncategorized") || []).map((location) => (
+                            <div 
+                              key={location.id}
+                              className="flex items-center justify-between gap-4 p-3 rounded-md bg-background hover-elevate"
+                              data-testid={`location-row-${location.id}`}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <code className="text-xs font-mono bg-muted px-2 py-1 rounded">
+                                    {location.code}
+                                  </code>
+                                </div>
+                                {location.customLabel && (
+                                  <p className="text-sm text-muted-foreground mt-1">{location.customLabel}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant={location.isActive ? "default" : "secondary"}>
+                                  {location.isActive ? "Aktif" : "Pasif"}
+                                </Badge>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon"
+                                  onClick={(e) => { e.stopPropagation(); handleShowQR(location); }}
+                                  data-testid={`button-qr-${location.id}`}
+                                >
+                                  <QrCode className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">

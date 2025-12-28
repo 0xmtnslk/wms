@@ -19,7 +19,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { useIsHQ } from "@/lib/auth-context";
+import { useIsHQ, useCurrentHospital } from "@/lib/auth-context";
 
 type PeriodType = "daily" | "monthly" | "3month" | "6month" | "yearly" | "custom";
 
@@ -742,8 +742,257 @@ function CrossComparisonTab() {
   );
 }
 
+interface CategoryComparisonData {
+  categories: {
+    id: string;
+    code: string;
+    name: string;
+    weight: number;
+    cost: number;
+    medicalKg: number;
+    hazardousKg: number;
+    domesticKg: number;
+    recycleKg: number;
+    locationCount: number;
+  }[];
+}
+
+function CategoryComparisonTab() {
+  const currentHospital = useCurrentHospital();
+  const [metric, setMetric] = useState<string>("cost");
+
+  const { data, isLoading } = useQuery<CategoryComparisonData>({
+    queryKey: ["/api/detailed-analytics/category-comparison", currentHospital?.id, metric],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        hospitalId: currentHospital?.id || "",
+        metric
+      });
+      const res = await fetch(`/api/detailed-analytics/category-comparison?${params}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!currentHospital?.id
+  });
+
+  const metricOptions = [
+    { value: "cost", label: "Maliyet", icon: Banknote },
+    { value: "weight", label: "Toplam Ağırlık", icon: Scale },
+    { value: "medical", label: "Tıbbi Atık", icon: Scale },
+    { value: "hazardous", label: "Tehlikeli Atık", icon: Scale },
+    { value: "domestic", label: "Evsel Atık", icon: Scale },
+    { value: "recycle", label: "Geri Dönüşüm", icon: Scale },
+  ];
+
+  const getMetricValue = (c: CategoryComparisonData["categories"][0]) => {
+    switch (metric) {
+      case "weight": return c.weight;
+      case "cost": return c.cost;
+      case "medical": return c.medicalKg;
+      case "hazardous": return c.hazardousKg;
+      case "domestic": return c.domesticKg;
+      case "recycle": return c.recycleKg;
+      default: return c.weight;
+    }
+  };
+
+  const getMetricLabel = () => {
+    const opt = metricOptions.find(m => m.value === metric);
+    return opt?.label || "Değer";
+  };
+
+  const maxValue = useMemo(() => {
+    if (!data?.categories.length) return 1;
+    return Math.max(...data.categories.map(getMetricValue), 1);
+  }, [data, metric]);
+
+  const categoryColors = ['#e11d48', '#f59e0b', '#64748b', '#06b6d4', '#22c55e', '#8b5cf6'];
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground mb-2 block">
+                Karşılaştırma Kriteri
+              </label>
+              <Select value={metric} onValueChange={setMetric}>
+                <SelectTrigger className="w-48" data-testid="select-category-metric">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {metricOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      <div className="flex items-center gap-2">
+                        <opt.icon className="h-4 w-4" />
+                        {opt.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Badge variant="outline" className="text-sm">
+              {currentHospital?.name}
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
+
+      {data?.categories && data.categories.length > 0 ? (
+        <>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Package className="h-4 w-4 text-primary" />
+                Kategori Bazında {getMetricLabel()} {metric !== "cost" ? "(kg)" : "(TL)"}
+              </CardTitle>
+              <Badge variant="outline">{data.categories.length} Kategori</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-end justify-center gap-4 md:gap-8 h-64 pt-8 overflow-x-auto">
+                <AnimatePresence mode="popLayout">
+                  {data.categories.slice(0, 6).map((category, idx) => {
+                    const value = getMetricValue(category);
+                    const heightPercent = (value / maxValue) * 100;
+                    const color = categoryColors[idx % categoryColors.length];
+                    const isLeader = idx === 0;
+                    const displayValue = metric === "cost" 
+                      ? `${(value/1000).toFixed(1)}k` 
+                      : `${value.toFixed(1)} kg`;
+                    
+                    return (
+                      <motion.div
+                        key={category.id}
+                        className="flex flex-col items-center gap-2 shrink-0"
+                        initial={{ opacity: 0, y: 50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.5, delay: idx * 0.1 }}
+                      >
+                        <div className="relative flex flex-col items-center">
+                          {isLeader && (
+                            <motion.div
+                              initial={{ scale: 0, y: 10 }}
+                              animate={{ scale: 1, y: 0 }}
+                              transition={{ delay: 0.5, type: "spring" }}
+                              className="absolute -top-6"
+                            >
+                              <Trophy className="h-5 w-5 text-yellow-500" />
+                            </motion.div>
+                          )}
+                          <span className="text-xs font-medium text-muted-foreground mb-1">
+                            {displayValue}
+                          </span>
+                          <motion.div
+                            className="w-14 rounded-t-md"
+                            style={{ backgroundColor: color }}
+                            initial={{ height: 0 }}
+                            animate={{ height: `${Math.max(heightPercent * 1.8, 8)}px` }}
+                            transition={{ duration: 0.8, delay: idx * 0.1 }}
+                          />
+                        </div>
+                        <span className="text-xs font-medium text-center max-w-16 truncate" title={category.name}>
+                          {category.name.length > 10 ? category.name.substring(0, 10) + "..." : category.name}
+                        </span>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <AnimatePresence mode="popLayout">
+              {data.categories.map((category, idx) => {
+                const color = categoryColors[idx % categoryColors.length];
+                const medicalRatio = category.weight > 0 ? (category.medicalKg / category.weight) * 100 : 0;
+                const riskLevel = medicalRatio > 40 ? "Yüksek Risk" : medicalRatio > 20 ? "Orta Risk" : "Düşük Risk";
+                const riskColor = medicalRatio > 40 ? "bg-rose-500/10 text-rose-500 border-rose-500/20"
+                  : medicalRatio > 20 ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                  : "bg-green-500/10 text-green-500 border-green-500/20";
+
+                return (
+                  <motion.div
+                    key={category.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.4, delay: idx * 0.1 }}
+                  >
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">#{idx + 1} SIRALAMA</p>
+                            <h3 className="font-semibold flex items-center gap-1">
+                              {category.name}
+                              <span 
+                                className="w-2 h-2 rounded-full" 
+                                style={{ backgroundColor: color }}
+                              />
+                            </h3>
+                          </div>
+                          <Badge variant="outline" className={riskColor}>
+                            {riskLevel}
+                          </Badge>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Maliyet</p>
+                            <p className="text-lg font-bold font-mono">
+                              {category.cost.toLocaleString('tr-TR')}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Tıbbi Oran</p>
+                            <p className="text-lg font-bold font-mono">
+                              %{medicalRatio.toFixed(1)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>Mahal Sayısı: {category.locationCount}</span>
+                          <span>Toplam: {category.weight.toFixed(1)} kg</span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
+          </div>
+        </>
+      ) : (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Package className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p>Kategori verisi bulunamadı.</p>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function DetailedAnalyticsPage() {
   const isHQ = useIsHQ();
+  const currentHospital = useCurrentHospital();
   const [activeTab, setActiveTab] = useState("performance");
 
   return (
@@ -752,7 +1001,7 @@ export default function DetailedAnalyticsPage() {
         <div>
           <h1 className="text-2xl font-bold">Detaylı Analiz & KPI</h1>
           <p className="text-muted-foreground">
-            Hastane performans metrikleri ve çapraz karşılaştırma
+            {isHQ ? "Hastane performans metrikleri ve çapraz karşılaştırma" : `${currentHospital?.name} - Bölüm performans metrikleri`}
           </p>
         </div>
       </div>
@@ -760,10 +1009,10 @@ export default function DetailedAnalyticsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="performance" data-testid="tab-performance">
-            Hastane Performans
+            {isHQ ? "Hastane Performans" : "Bölüm Performans"}
           </TabsTrigger>
           <TabsTrigger value="comparison" data-testid="tab-comparison">
-            Çapraz Kıyaslama
+            {isHQ ? "Çapraz Kıyaslama" : "Kategori Kıyaslama"}
           </TabsTrigger>
         </TabsList>
 
@@ -772,7 +1021,7 @@ export default function DetailedAnalyticsPage() {
         </TabsContent>
 
         <TabsContent value="comparison" className="mt-4">
-          <CrossComparisonTab />
+          {isHQ ? <CrossComparisonTab /> : <CategoryComparisonTab />}
         </TabsContent>
       </Tabs>
     </div>

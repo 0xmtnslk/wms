@@ -20,6 +20,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { useToast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
+import { useIsHQ, useCurrentHospital } from "@/lib/auth-context";
 import {
   PieChart as RechartsPie,
   Pie,
@@ -101,6 +102,8 @@ function ChartExportContainer({
 
 export default function ReportsPage() {
   const { toast } = useToast();
+  const isHQ = useIsHQ();
+  const currentHospital = useCurrentHospital();
   const [dateRange, setDateRange] = useState<{ start: Date; end: Date }>({
     start: subMonths(new Date(), 3),
     end: new Date()
@@ -111,6 +114,10 @@ export default function ReportsPage() {
   const [hospitalSearch, setHospitalSearch] = useState("");
   const [selectedHospitals, setSelectedHospitals] = useState<string[]>([]);
   const [showAllHospitals, setShowAllHospitals] = useState(true);
+
+  const effectiveHospitalFilter = isHQ 
+    ? (showAllHospitals ? "all" : selectedHospitals.join(','))
+    : currentHospital?.id || "";
 
   const pieChartRef = useRef<HTMLDivElement>(null);
   const barChartRef = useRef<HTMLDivElement>(null);
@@ -138,15 +145,13 @@ export default function ReportsPage() {
     );
   }, [allHospitals, hospitalSearch]);
 
-  const hospitalIds = showAllHospitals ? "all" : selectedHospitals.join(',');
-
   const { data, isLoading, refetch } = useQuery<ReportsData>({
-    queryKey: ["/api/reports", dateRange.start, dateRange.end, hospitalIds, wasteTypeFilter, categoryFilter],
+    queryKey: ["/api/reports", dateRange.start, dateRange.end, effectiveHospitalFilter, wasteTypeFilter, categoryFilter],
     queryFn: async () => {
       const params = new URLSearchParams({
         startDate: dateRange.start.toISOString(),
         endDate: dateRange.end.toISOString(),
-        hospitalFilter: hospitalIds,
+        hospitalFilter: effectiveHospitalFilter,
         wasteTypeFilter,
         categoryFilter
       });
@@ -290,7 +295,7 @@ export default function ReportsPage() {
             Raporlar
           </h1>
           <p className="text-muted-foreground">
-            Karşılaştırmalı analizler ve veri indirme
+            {isHQ ? "Karşılaştırmalı analizler ve veri indirme" : `${currentHospital?.name} - Detaylı raporlar`}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -407,50 +412,62 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            <div>
-              <label className="text-sm font-medium text-muted-foreground mb-2 block">Hastane</label>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      type="text"
-                      placeholder="Hastane ara..."
-                      value={hospitalSearch}
-                      onChange={(e) => setHospitalSearch(e.target.value)}
-                      className="pl-9 h-8 text-sm"
-                      data-testid="input-hospital-search"
-                    />
-                  </div>
-                  <Button
-                    variant={showAllHospitals ? "default" : "outline"}
-                    size="sm"
-                    onClick={selectAllHospitals}
-                    data-testid="button-all-hospitals"
-                  >
-                    Tümü
-                  </Button>
-                </div>
-                <div className="flex flex-wrap gap-1 p-2 border rounded-md bg-muted/30 max-h-24 overflow-y-auto">
-                  {filteredHospitals.map((h) => (
-                    <div
-                      key={h.id}
-                      className={cn(
-                        "flex items-center gap-1 px-2 py-0.5 rounded text-xs cursor-pointer transition-all",
-                        !showAllHospitals && selectedHospitals.includes(h.id)
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-muted hover-elevate"
-                      )}
-                      onClick={() => toggleHospital(h.id)}
-                      data-testid={`toggle-hospital-${h.id}`}
-                    >
-                      {!showAllHospitals && selectedHospitals.includes(h.id) && <Check className="h-3 w-3" />}
-                      {h.name}
+            {isHQ ? (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-2 block">Hastane</label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input
+                        type="text"
+                        placeholder="Hastane ara..."
+                        value={hospitalSearch}
+                        onChange={(e) => setHospitalSearch(e.target.value)}
+                        className="pl-9 h-8 text-sm"
+                        data-testid="input-hospital-search"
+                      />
                     </div>
-                  ))}
+                    <Button
+                      variant={showAllHospitals ? "default" : "outline"}
+                      size="sm"
+                      onClick={selectAllHospitals}
+                      data-testid="button-all-hospitals"
+                    >
+                      Tümü
+                    </Button>
+                  </div>
+                  <div className="flex flex-wrap gap-1 p-2 border rounded-md bg-muted/30 max-h-24 overflow-y-auto">
+                    {filteredHospitals.map((h) => (
+                      <div
+                        key={h.id}
+                        className={cn(
+                          "flex items-center gap-1 px-2 py-0.5 rounded text-xs cursor-pointer transition-all",
+                          !showAllHospitals && selectedHospitals.includes(h.id)
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-muted hover-elevate"
+                        )}
+                        onClick={() => toggleHospital(h.id)}
+                        data-testid={`toggle-hospital-${h.id}`}
+                      >
+                        {!showAllHospitals && selectedHospitals.includes(h.id) && <Check className="h-3 w-3" />}
+                        {h.name}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : (
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-2 block">Hastane</label>
+                <div className="p-2 border rounded-md bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">{currentHospital?.name}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="text-sm font-medium text-muted-foreground mb-2 block">Atık Türü</label>
