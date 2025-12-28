@@ -633,6 +633,26 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/detailed-analytics/category-performance", requireAuth, async (req, res) => {
+    try {
+      const { hospitalId, startDate, endDate } = req.query;
+      
+      if (!hospitalId) {
+        return res.status(400).json({ error: "Hospital ID required" });
+      }
+      
+      const data = await storage.getCategoryPerformance(
+        hospitalId as string,
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined
+      );
+      res.json(data);
+    } catch (error) {
+      console.error("Category performance error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/reports", requireAuth, async (req, res) => {
     try {
       const { startDate, endDate, hospitalFilter, wasteTypeFilter, categoryFilter } = req.query;

@@ -982,6 +982,78 @@ export class DatabaseStorage implements IStorage {
 
     return { categories: categoriesArray };
   }
+
+  async getCategoryPerformance(hospitalId: string, startDate?: Date, endDate?: Date) {
+    const allWasteTypes = await this.getWasteTypes();
+    const allCategories = await this.getLocationCategories();
+    const allLocations = await db.select().from(locations).where(eq(locations.hospitalId, hospitalId));
+    const allOpCoefficients = await db.select().from(operationalCoefficients).where(eq(operationalCoefficients.hospitalId, hospitalId));
+    
+    let allCollections = await db.select().from(wasteCollections).where(eq(wasteCollections.hospitalId, hospitalId));
+    
+    if (startDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) >= startDate);
+    }
+    if (endDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) <= endDate);
+    }
+
+    const categoryPerformances = allCategories.map(cat => {
+      const catLocations = allLocations.filter(l => l.categoryId === cat.id);
+      const catLocationIds = catLocations.map(l => l.id);
+      const catCollections = allCollections.filter(c => c.locationId && catLocationIds.includes(c.locationId));
+      
+      let medicalWeight = 0, hazardousWeight = 0, domesticWeight = 0, recycleWeight = 0;
+      catCollections.forEach(c => {
+        const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+        const weight = parseFloat(c.weightKg as string) || 0;
+        if (wt?.code === 'medical') medicalWeight += weight;
+        if (wt?.code === 'hazardous') hazardousWeight += weight;
+        if (wt?.code === 'domestic') domesticWeight += weight;
+        if (wt?.code === 'recycle') recycleWeight += weight;
+      });
+
+      const totalWeight = medicalWeight + hazardousWeight + domesticWeight + recycleWeight;
+      
+      const opCoef = allOpCoefficients.find(oc => oc.categoryId === cat.id);
+      const opData = opCoef ? parseFloat(opCoef.value as string) : 
+        (cat.code === 'icu' ? 450 : cat.code === 'ward' ? 1200 : cat.code === 'surgery' ? 180 : 
+         cat.code === 'outpatient' ? 5000 : cat.code === 'admin' ? 50 : 1);
+
+      const kpi = opData > 0 ? totalWeight / opData : 0;
+      const refFactor = parseFloat(cat.referenceWasteFactor as string) || 1.0;
+      const impact = refFactor > 0 ? ((refFactor - kpi) / refFactor) * 10 : 10;
+
+      const wasteIndex = opData > 0 ? totalWeight / (opData * 0.1) : 0;
+      const score = Math.max(0, Math.min(100, Math.round(100 - (wasteIndex * 30))));
+
+      return {
+        id: cat.id,
+        code: cat.code,
+        name: cat.name,
+        hex: '#3b82f6',
+        score,
+        wasteIndex,
+        totalWeight,
+        medicalWeight,
+        hazardousWeight,
+        domesticWeight,
+        recycleWeight,
+        opData,
+        kpi,
+        impact: Math.max(-10, Math.min(10, impact)),
+        locationCount: catLocations.length,
+        isLeader: false
+      };
+    }).filter(c => c.totalWeight > 0 || c.locationCount > 0);
+
+    categoryPerformances.sort((a, b) => b.score - a.score);
+    if (categoryPerformances.length > 0) {
+      categoryPerformances[0].isLeader = true;
+    }
+
+    return { categories: categoryPerformances };
+  }
 }
 
 export const storage = new DatabaseStorage();
