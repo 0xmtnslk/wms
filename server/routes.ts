@@ -362,17 +362,23 @@ export async function registerRoutes(
     try {
       const { hospitalId, period, values } = req.body;
       
+      if (!hospitalId || !period || !values || !Array.isArray(values)) {
+        return res.status(400).json({ error: "Missing required fields" });
+      }
+      
       for (const v of values) {
+        if (!v.categoryId || v.value === undefined) continue;
         await storage.upsertOperationalCoefficient({
           hospitalId,
           categoryId: v.categoryId,
           period,
-          value: v.value.toString()
+          value: String(v.value)
         });
       }
       
       res.json({ success: true });
     } catch (error) {
+      console.error("Error saving operational coefficients:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

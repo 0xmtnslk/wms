@@ -85,7 +85,7 @@ export const operationalCoefficients = pgTable("operational_coefficients", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   hospitalId: varchar("hospital_id", { length: 36 }).notNull().references(() => hospitals.id),
   categoryId: varchar("category_id", { length: 36 }).notNull().references(() => locationCategories.id),
-  period: varchar("period", { length: 7 }).notNull(),
+  period: varchar("period", { length: 30 }).notNull(),
   value: decimal("value", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });
