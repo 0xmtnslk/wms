@@ -6,8 +6,9 @@ import { tr } from "date-fns/locale";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   TrendingUp, TrendingDown, Trophy, ChevronDown, ChevronUp,
-  Building2, Scale, Banknote, Gauge, Package, Calendar, AlertTriangle, Check
+  Building2, Scale, Banknote, Gauge, Package, Calendar, AlertTriangle, Check, Search, X
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -355,9 +356,11 @@ function MiniTrendLine({ data, color }: { data: number[]; color: string }) {
 }
 
 function CrossComparisonTab() {
-  const [metric, setMetric] = useState<string>("medical");
+  const [metric, setMetric] = useState<string>("cost");
   const [selectedHospitals, setSelectedHospitals] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [hospitalSearch, setHospitalSearch] = useState("");
+  const [showAllHospitals, setShowAllHospitals] = useState(true);
 
   const { data: allHospitals } = useQuery<{ id: string; code: string; name: string; colorHex?: string }[]>({
     queryKey: ["/api/hospitals"],
@@ -367,20 +370,23 @@ function CrossComparisonTab() {
     queryKey: ["/api/settings/location-categories"],
   });
 
-  useEffect(() => {
-    if (allHospitals && selectedHospitals.length === 0) {
-      setSelectedHospitals(allHospitals.slice(0, 3).map(h => h.id));
-    }
-  }, [allHospitals]);
+  const filteredHospitals = useMemo(() => {
+    if (!allHospitals) return [];
+    if (!hospitalSearch) return allHospitals;
+    return allHospitals.filter(h => 
+      h.name.toLowerCase().includes(hospitalSearch.toLowerCase()) ||
+      h.code.toLowerCase().includes(hospitalSearch.toLowerCase())
+    );
+  }, [allHospitals, hospitalSearch]);
 
-  const hospitalIds = selectedHospitals.join(',');
+  const hospitalIds = showAllHospitals ? "all" : selectedHospitals.join(',');
 
   const { data, isLoading } = useQuery<CrossComparisonData>({
     queryKey: ["/api/detailed-analytics/comparison", metric, hospitalIds, categoryFilter],
     queryFn: async () => {
       const params = new URLSearchParams({
         metric,
-        hospitalFilter: hospitalIds || "all",
+        hospitalFilter: hospitalIds,
         categoryFilter
       });
       const res = await fetch(`/api/detailed-analytics/comparison?${params}`, {
@@ -388,17 +394,16 @@ function CrossComparisonTab() {
       });
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
-    },
-    enabled: selectedHospitals.length > 0
+    }
   });
 
   const metricOptions = [
+    { value: "cost", label: "Maliyet", icon: Banknote },
+    { value: "weight", label: "Toplam Ağırlık", icon: Scale },
     { value: "medical", label: "Tıbbi Atık", icon: Scale },
     { value: "hazardous", label: "Tehlikeli Atık", icon: Scale },
     { value: "domestic", label: "Evsel Atık", icon: Scale },
     { value: "recycle", label: "Geri Dönüşüm", icon: Scale },
-    { value: "weight", label: "Toplam Ağırlık", icon: Scale },
-    { value: "cost", label: "Maliyet", icon: Banknote },
     { value: "efficiency", label: "Verimlilik", icon: Gauge },
   ];
 
@@ -422,6 +427,7 @@ function CrossComparisonTab() {
   };
 
   const toggleHospital = (id: string) => {
+    setShowAllHospitals(false);
     setSelectedHospitals(prev => 
       prev.includes(id) 
         ? prev.filter(h => h !== id)
@@ -429,10 +435,21 @@ function CrossComparisonTab() {
     );
   };
 
+  const selectAllHospitals = () => {
+    setShowAllHospitals(true);
+    setSelectedHospitals([]);
+  };
+
+  const clearSelection = () => {
+    setShowAllHospitals(false);
+    setSelectedHospitals([]);
+  };
+
   const selectedData = useMemo(() => {
     if (!data?.hospitals) return [];
+    if (showAllHospitals) return data.hospitals;
     return data.hospitals.filter(h => selectedHospitals.includes(h.id));
-  }, [data, selectedHospitals]);
+  }, [data, selectedHospitals, showAllHospitals]);
 
   const maxValue = useMemo(() => {
     if (!selectedData.length) return 1;
@@ -441,7 +458,7 @@ function CrossComparisonTab() {
 
   const hospitalColors = ['#f59e0b', '#6366f1', '#ec4899', '#22c55e', '#06b6d4', '#8b5cf6'];
 
-  if (isLoading && selectedHospitals.length > 0) {
+  if (isLoading) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-20 w-full" />
@@ -480,23 +497,64 @@ function CrossComparisonTab() {
               <label className="text-sm font-medium text-muted-foreground mb-2 block">
                 Hastane Seçimi
               </label>
-              <div className="flex flex-wrap gap-2 p-2 border rounded-md bg-muted/30 max-h-24 overflow-y-auto">
-                {allHospitals?.map((h, idx) => (
-                  <div
-                    key={h.id}
-                    className={cn(
-                      "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs cursor-pointer transition-all",
-                      selectedHospitals.includes(h.id) 
-                        ? "bg-primary text-primary-foreground" 
-                        : "bg-muted hover-elevate"
-                    )}
-                    onClick={() => toggleHospital(h.id)}
-                    data-testid={`toggle-hospital-${h.id}`}
-                  >
-                    {selectedHospitals.includes(h.id) && <Check className="h-3 w-3" />}
-                    {h.name}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                    <Input
+                      type="text"
+                      placeholder="Hastane ara..."
+                      value={hospitalSearch}
+                      onChange={(e) => setHospitalSearch(e.target.value)}
+                      className="pl-9"
+                      data-testid="input-hospital-search"
+                    />
                   </div>
-                ))}
+                  <Button
+                    variant={showAllHospitals ? "default" : "outline"}
+                    size="sm"
+                    onClick={selectAllHospitals}
+                    data-testid="button-all-hospitals"
+                  >
+                    Tümü
+                  </Button>
+                  {!showAllHospitals && selectedHospitals.length > 0 && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={clearSelection}
+                      data-testid="button-clear-selection"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5 p-2 border rounded-md bg-muted/30 max-h-32 overflow-y-auto">
+                  {filteredHospitals.map((h) => (
+                    <div
+                      key={h.id}
+                      className={cn(
+                        "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs cursor-pointer transition-all",
+                        !showAllHospitals && selectedHospitals.includes(h.id) 
+                          ? "bg-primary text-primary-foreground" 
+                          : "bg-muted hover-elevate"
+                      )}
+                      onClick={() => toggleHospital(h.id)}
+                      data-testid={`toggle-hospital-${h.id}`}
+                    >
+                      {!showAllHospitals && selectedHospitals.includes(h.id) && <Check className="h-3 w-3" />}
+                      {h.name}
+                    </div>
+                  ))}
+                  {filteredHospitals.length === 0 && (
+                    <p className="text-xs text-muted-foreground py-2 px-1">Hastane bulunamadı</p>
+                  )}
+                </div>
+                {!showAllHospitals && selectedHospitals.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {selectedHospitals.length} hastane seçili
+                  </p>
+                )}
               </div>
             </div>
 
@@ -528,23 +586,33 @@ function CrossComparisonTab() {
             <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
               <CardTitle className="text-sm font-medium flex items-center gap-2">
                 <Scale className="h-4 w-4 text-rose-500" />
-                {getMetricLabel()} (kg)
+                {getMetricLabel()} {metric !== "cost" && metric !== "efficiency" ? "(kg)" : metric === "cost" ? "(TL)" : ""}
               </CardTitle>
-              <Badge variant="outline">{getMetricLabel()}</Badge>
+              <div className="flex items-center gap-2">
+                {showAllHospitals && selectedData.length > 6 && (
+                  <span className="text-xs text-muted-foreground">İlk 6 hastane gösteriliyor</span>
+                )}
+                <Badge variant="outline">{getMetricLabel()}</Badge>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="flex items-end justify-center gap-8 h-64 pt-8">
+              <div className="flex items-end justify-center gap-4 md:gap-8 h-64 pt-8 overflow-x-auto">
                 <AnimatePresence mode="popLayout">
-                  {selectedData.map((hospital, idx) => {
+                  {selectedData.slice(0, 6).map((hospital, idx) => {
                     const value = getMetricValue(hospital);
                     const heightPercent = (value / maxValue) * 100;
                     const color = hospitalColors[idx % hospitalColors.length];
                     const isLeader = idx === 0;
+                    const displayValue = metric === "cost" 
+                      ? `${(value/1000).toFixed(1)}k` 
+                      : metric === "efficiency"
+                      ? `${(value * 100).toFixed(0)}%`
+                      : `${value.toFixed(1)} kg`;
                     
                     return (
                       <motion.div
                         key={hospital.id}
-                        className="flex flex-col items-center gap-2"
+                        className="flex flex-col items-center gap-2 shrink-0"
                         initial={{ opacity: 0, y: 50 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.8 }}
@@ -562,7 +630,7 @@ function CrossComparisonTab() {
                             </motion.div>
                           )}
                           <motion.div
-                            className="w-20 rounded-t-md relative"
+                            className="w-16 md:w-20 rounded-t-md relative"
                             style={{ backgroundColor: color }}
                             initial={{ height: 0 }}
                             animate={{ height: `${Math.max(heightPercent * 1.8, 20)}px` }}
@@ -574,11 +642,11 @@ function CrossComparisonTab() {
                               animate={{ opacity: 1 }}
                               transition={{ delay: 0.8 + idx * 0.1 }}
                             >
-                              {value.toFixed(1)} kg
+                              {displayValue}
                             </motion.span>
                           </motion.div>
                         </div>
-                        <p className="text-xs text-center max-w-20 truncate">{hospital.name}</p>
+                        <p className="text-xs text-center max-w-16 md:max-w-20 truncate">{hospital.name}</p>
                       </motion.div>
                     );
                   })}
@@ -662,11 +730,11 @@ function CrossComparisonTab() {
         </>
       )}
 
-      {selectedHospitals.length === 0 && (
+      {!showAllHospitals && selectedHospitals.length === 0 && (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
             <Building2 className="h-12 w-12 mx-auto mb-4 opacity-30" />
-            <p>Karşılaştırma yapmak için hastane seçin.</p>
+            <p>Karşılaştırma yapmak için hastane seçin veya "Tümü" butonuna tıklayın.</p>
           </CardContent>
         </Card>
       )}
