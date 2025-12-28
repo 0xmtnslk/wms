@@ -923,6 +923,7 @@ function WasteTypeCostsForm({
                   setShowNewCostForm(false);
                   setValues({});
                 }}
+                data-testid="button-close-cost-form"
               >
                 <X className="h-4 w-4" />
               </Button>

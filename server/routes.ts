@@ -408,12 +408,17 @@ export async function registerRoutes(
         locationId = location?.id || null;
       }
 
+      const collectionDate = new Date();
+      const effectiveCost = await storage.getEffectiveCostForDate(wasteType.id, collectionDate);
+      const appliedCostPerKg = effectiveCost?.costPerKg || wasteType.costPerKg;
+
       const collection = await storage.createWasteCollection({
         hospitalId,
         locationId,
         wasteTypeId: wasteType.id,
         tagCode,
         collectedByUserId: req.session.userId,
+        appliedCostPerKg,
         status: "pending"
       });
 
