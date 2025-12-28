@@ -112,7 +112,7 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter className="p-4 border-t border-sidebar-border">
-        {currentHospital && (
+        {!isHQ && currentHospital && (
           <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-sidebar-accent mb-3">
             <div 
               className="w-2 h-2 rounded-full" 
