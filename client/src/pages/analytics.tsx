@@ -83,6 +83,12 @@ export default function AnalyticsPage() {
 
   const { data, isLoading } = useQuery<AnalyticsData>({
     queryKey: ["/api/analytics", hospitalId],
+    queryFn: async () => {
+      const url = hospitalId ? `/api/analytics?hospitalId=${hospitalId}` : "/api/analytics";
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch analytics");
+      return response.json();
+    },
   });
 
   if (isLoading) {
