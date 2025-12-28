@@ -405,10 +405,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAnalytics(hospitalId?: string) {
-    const collections = await this.getWasteCollections(hospitalId, 1000);
+    const allCollections = await this.getWasteCollections(undefined, 5000);
+    const collections = hospitalId 
+      ? allCollections.filter(c => c.hospitalId === hospitalId)
+      : allCollections;
     const allWasteTypes = await this.getWasteTypes();
     const allHospitals = await this.getHospitals();
     const categories = await this.getLocationCategories();
+    const allIssues = await this.getIssues();
+    const issues = hospitalId ? allIssues.filter(i => i.hospitalId === hospitalId) : allIssues;
 
     const totalWeight = collections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
     const medicalWeight = collections
@@ -419,20 +424,47 @@ export class DatabaseStorage implements IStorage {
       .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
 
     const kpis = {
-      wastePerBed: totalWeight / 100,
-      wastePerSurgery: totalWeight / 50,
-      wastePerProtocol: totalWeight / 1000,
+      wastePerBed: totalWeight / Math.max(allHospitals.length * 100, 1),
+      wastePerSurgery: totalWeight / Math.max(allHospitals.length * 50, 1),
+      wastePerProtocol: totalWeight / Math.max(allHospitals.length * 1000, 1),
       medicalWasteRatio: totalWeight > 0 ? medicalWeight / totalWeight : 0,
       recycleRatio: totalWeight > 0 ? recycleWeight / totalWeight : 0,
-      costEfficiency: 0.75
+      costEfficiency: totalWeight > 0 ? Math.min((recycleWeight / totalWeight) + 0.5, 1) : 0.5,
+      totalHospitals: allHospitals.length,
+      totalCollections: collections.length
     };
 
-    const riskMatrix = categories.slice(0, 6).map((cat, idx) => ({
-      category: cat.code,
-      risk: idx < 2 ? 'high' : idx < 4 ? 'medium' : 'low' as 'low' | 'medium' | 'high',
-      score: Math.floor(Math.random() * 40) + 60,
-      label: cat.name
-    }));
+    const categoryRanking = allWasteTypes.map(wt => {
+      const weight = collections
+        .filter(c => c.wasteTypeId === wt.id)
+        .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
+      return {
+        code: wt.code,
+        name: wt.name,
+        weight,
+        percentage: totalWeight > 0 ? (weight / totalWeight) * 100 : 0,
+        hex: wt.colorHex
+      };
+    }).sort((a, b) => b.weight - a.weight);
+
+    const openIssues = issues.filter(i => !i.isResolved);
+    const issuesByCategory: Record<string, number> = {};
+    openIssues.forEach(i => {
+      issuesByCategory[i.category] = (issuesByCategory[i.category] || 0) + 1;
+    });
+
+    const riskMatrix = {
+      totalIssues: issues.length,
+      openIssues: openIssues.length,
+      resolvedIssues: issues.filter(i => i.isResolved).length,
+      byCategory: Object.entries(issuesByCategory).map(([category, count]) => ({
+        category,
+        count,
+        severity: count > 5 ? 'high' : count > 2 ? 'medium' : 'low' as 'low' | 'medium' | 'high'
+      })),
+      overallRisk: openIssues.length > 10 ? 'high' : openIssues.length > 5 ? 'medium' : 'low' as 'low' | 'medium' | 'high',
+      riskScore: Math.min(100, openIssues.length * 10)
+    };
 
     const costAnalysis = allWasteTypes.map(wt => {
       const weight = collections
@@ -441,6 +473,7 @@ export class DatabaseStorage implements IStorage {
       const unitCost = parseFloat(wt.costPerKg as string);
       return {
         wasteType: wt.name,
+        code: wt.code,
         weight,
         unitCost,
         totalCost: weight * unitCost,
@@ -448,39 +481,96 @@ export class DatabaseStorage implements IStorage {
       };
     });
 
-    const timeAnalysis = Array.from({ length: 24 }, (_, hour) => ({
-      hour,
-      value: collections.filter(c => c.collectedAt?.getHours() === hour)
-        .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0) || Math.random() * 20
-    }));
+    const totalCost = costAnalysis.reduce((sum, c) => sum + c.totalCost, 0);
 
-    const hospitalComparison = allHospitals.map(h => {
-      const hCollections = collections.filter(c => c.hospitalId === h.id);
-      const hTotal = hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
-      const hMedical = hCollections
-        .filter(c => allWasteTypes.find(wt => wt.id === c.wasteTypeId)?.code === 'medical')
-        .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
-      const hRecycle = hCollections
-        .filter(c => allWasteTypes.find(wt => wt.id === c.wasteTypeId)?.code === 'recycle')
-        .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
+    const hospitalCosts = allHospitals.map(h => {
+      const hCollections = allCollections.filter(c => c.hospitalId === h.id);
+      let hCost = 0;
+      hCollections.forEach(c => {
+        const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+        if (wt) {
+          hCost += (parseFloat(c.weightKg as string) || 0) * parseFloat(wt.costPerKg as string);
+        }
+      });
+      return {
+        id: h.id,
+        code: h.code,
+        name: h.name,
+        totalCost: hCost,
+        totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
+        hex: h.colorHex || '#3b82f6'
+      };
+    });
+
+    const sortedByCost = [...hospitalCosts].sort((a, b) => a.totalCost - b.totalCost);
+    const bestHospitals = sortedByCost.slice(0, 3);
+    const worstHospitals = sortedByCost.slice(-3).reverse();
+
+    const timeAnalysis = Array.from({ length: 24 }, (_, hour) => {
+      const hourCollections = collections.filter(c => c.collectedAt?.getHours() === hour);
+      return {
+        hour,
+        count: hourCollections.length,
+        weight: hourCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0)
+      };
+    });
+
+    const shiftAnalysis = [
+      { name: "Sabah (08-16)", hours: [8,9,10,11,12,13,14,15], count: 0, weight: 0 },
+      { name: "Akşam (16-24)", hours: [16,17,18,19,20,21,22,23], count: 0, weight: 0 },
+      { name: "Gece (00-08)", hours: [0,1,2,3,4,5,6,7], count: 0, weight: 0 }
+    ];
+
+    shiftAnalysis.forEach(shift => {
+      shift.hours.forEach(h => {
+        const ta = timeAnalysis.find(t => t.hour === h);
+        if (ta) {
+          shift.count += ta.count;
+          shift.weight += ta.weight;
+        }
+      });
+    });
+
+    const avgCollectionTime = collections.length > 0 
+      ? collections.filter(c => c.weighedAt && c.collectedAt)
+          .map(c => (new Date(c.weighedAt!).getTime() - new Date(c.collectedAt!).getTime()) / 60000)
+          .reduce((sum, t, _, arr) => sum + t / arr.length, 0)
+      : 15;
+
+    const hospitalTimeStats = allHospitals.map(h => {
+      const hCollections = allCollections.filter(c => c.hospitalId === h.id);
+      const hIssues = allIssues.filter(i => i.hospitalId === h.id);
+      const avgTime = hCollections.length > 0 
+        ? hCollections.filter(c => c.weighedAt && c.collectedAt)
+            .map(c => (new Date(c.weighedAt!).getTime() - new Date(c.collectedAt!).getTime()) / 60000)
+            .reduce((sum, t, _, arr) => sum + t / arr.length, 0) || 15
+        : 15;
       
       return {
-        hospitalCode: h.code,
-        hospitalName: h.name,
-        totalWeight: hTotal,
-        medicalRatio: hTotal > 0 ? hMedical / hTotal : 0,
-        recycleRatio: hTotal > 0 ? hRecycle / hTotal : 0,
-        efficiency: 0.7 + Math.random() * 0.25,
+        id: h.id,
+        code: h.code,
+        name: h.name,
+        avgCollectionTime: avgTime,
+        totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
+        collectionsCount: hCollections.length,
+        issueCount: hIssues.filter(i => !i.isResolved).length,
         hex: h.colorHex || '#3b82f6'
       };
     });
 
     return {
       kpis,
+      categoryRanking,
       riskMatrix,
       costAnalysis,
+      totalCost,
+      hospitalCosts,
+      bestHospitals,
+      worstHospitals,
       timeAnalysis,
-      hospitalComparison
+      shiftAnalysis,
+      avgCollectionTime,
+      hospitalTimeStats
     };
   }
 }

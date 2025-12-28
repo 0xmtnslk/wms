@@ -2,21 +2,19 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { 
-  BarChart3, GitCompare, AlertOctagon, Target, Coins, Clock,
-  TrendingUp, TrendingDown, Building2, Loader2, ChevronDown, ArrowLeft
+  BarChart3, AlertOctagon, Coins, Clock,
+  TrendingUp, TrendingDown, Building2, ArrowLeft, Search, ChevronRight,
+  AlertTriangle, CheckCircle2, Target, Activity
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { RiskMatrix, RiskActionPanel } from "@/components/risk-matrix";
-import { BarChart } from "@/components/charts/bar-chart";
+import { Input } from "@/components/ui/input";
 import { TimeChart } from "@/components/charts/time-chart";
 import { KPICard } from "@/components/kpi-card";
 import { useAuth, useCurrentHospital, useIsHQ } from "@/lib/auth-context";
-import { WASTE_TYPES_CONFIG } from "@/components/waste-type-badge";
 
 interface AnalyticsData {
   kpis: {
@@ -26,31 +24,75 @@ interface AnalyticsData {
     medicalWasteRatio: number;
     recycleRatio: number;
     costEfficiency: number;
+    totalHospitals: number;
+    totalCollections: number;
   };
-  riskMatrix: {
-    category: string;
-    risk: "low" | "medium" | "high";
-    score: number;
-    label: string;
+  categoryRanking: {
+    code: string;
+    name: string;
+    weight: number;
+    percentage: number;
+    hex: string;
   }[];
+  riskMatrix: {
+    totalIssues: number;
+    openIssues: number;
+    resolvedIssues: number;
+    byCategory: { category: string; count: number; severity: 'low' | 'medium' | 'high' }[];
+    overallRisk: 'low' | 'medium' | 'high';
+    riskScore: number;
+  };
   costAnalysis: {
     wasteType: string;
+    code: string;
     weight: number;
     unitCost: number;
     totalCost: number;
     hex: string;
   }[];
+  totalCost: number;
+  hospitalCosts: {
+    id: string;
+    code: string;
+    name: string;
+    totalCost: number;
+    totalWeight: number;
+    hex: string;
+  }[];
+  bestHospitals: {
+    id: string;
+    code: string;
+    name: string;
+    totalCost: number;
+    hex: string;
+  }[];
+  worstHospitals: {
+    id: string;
+    code: string;
+    name: string;
+    totalCost: number;
+    hex: string;
+  }[];
   timeAnalysis: {
     hour: number;
-    value: number;
+    count: number;
+    weight: number;
   }[];
-  hospitalComparison: {
-    hospitalCode: string;
-    hospitalName: string;
+  shiftAnalysis: {
+    name: string;
+    hours: number[];
+    count: number;
+    weight: number;
+  }[];
+  avgCollectionTime: number;
+  hospitalTimeStats: {
+    id: string;
+    code: string;
+    name: string;
+    avgCollectionTime: number;
     totalWeight: number;
-    medicalRatio: number;
-    recycleRatio: number;
-    efficiency: number;
+    collectionsCount: number;
+    issueCount: number;
     hex: string;
   }[];
 }
@@ -61,6 +103,19 @@ interface Hospital {
   name: string;
 }
 
+const categoryLabels: Record<string, string> = {
+  segregation: "Ayrıştırma Hatası",
+  non_compliance: "Uygunsuzluk",
+  technical: "Teknik Sorun",
+  other: "Diğer",
+};
+
+const riskColors = {
+  low: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+  medium: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  high: "bg-rose-500/20 text-rose-400 border-rose-500/30"
+};
+
 export default function AnalyticsPage() {
   const { user } = useAuth();
   const currentHospital = useCurrentHospital();
@@ -68,7 +123,7 @@ export default function AnalyticsPage() {
   const [, navigate] = useLocation();
   const [match, params] = useRoute("/analytics/:hospitalId");
   const [activeTab, setActiveTab] = useState("kpi");
-  const [selectedRiskCell, setSelectedRiskCell] = useState<any>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const urlHospitalId = params?.hospitalId;
   const hospitalId = urlHospitalId || (isHQ ? undefined : currentHospital?.id);
@@ -95,11 +150,9 @@ export default function AnalyticsPage() {
     return <AnalyticsSkeleton />;
   }
 
-  const totalCost = data?.costAnalysis?.reduce((sum, c) => sum + c.totalCost, 0) || 0;
-
   const displayName = isViewingSpecificHospital 
     ? viewingHospital?.name || "Hastane" 
-    : (isHQ ? "Tüm hastaneler" : currentHospital?.name);
+    : (isHQ ? "Tüm Tesisler" : currentHospital?.name);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -109,7 +162,7 @@ export default function AnalyticsPage() {
             <Button 
               variant="ghost" 
               size="icon"
-              onClick={() => navigate("/")}
+              onClick={() => navigate("/analytics")}
               data-testid="button-back"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -122,10 +175,15 @@ export default function AnalyticsPage() {
             </p>
           </div>
         </div>
+        {isHQ && !isViewingSpecificHospital && (
+          <Badge variant="outline" className="text-xs">
+            {data?.kpis.totalHospitals} tesis - {data?.kpis.totalCollections} toplama
+          </Badge>
+        )}
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-2 lg:grid-cols-5 h-auto">
+        <TabsList className="grid w-full grid-cols-4 h-auto">
           <TabsTrigger value="kpi" className="gap-2" data-testid="tab-kpi">
             <BarChart3 className="h-4 w-4" />
             <span className="hidden sm:inline">KPI</span>
@@ -134,12 +192,6 @@ export default function AnalyticsPage() {
             <AlertOctagon className="h-4 w-4" />
             <span className="hidden sm:inline">Risk</span>
           </TabsTrigger>
-          {isHQ && (
-            <TabsTrigger value="compare" className="gap-2" data-testid="tab-compare">
-              <GitCompare className="h-4 w-4" />
-              <span className="hidden sm:inline">Karşılaştır</span>
-            </TabsTrigger>
-          )}
           <TabsTrigger value="cost" className="gap-2" data-testid="tab-cost">
             <Coins className="h-4 w-4" />
             <span className="hidden sm:inline">Maliyet</span>
@@ -197,132 +249,160 @@ export default function AnalyticsPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Mahal Kategorisi Bazlı Performans</CardTitle>
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Activity className="h-4 w-4 text-primary" />
+                Atık Türü Sıralaması
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {["Yoğun Bakım", "Ameliyathane", "Poliklinik", "Servis", "İdari"].map((cat, idx) => {
-                  const performance = Math.random() * 100;
-                  const isGood = performance < 60;
-                  return (
-                    <div key={idx} className="flex items-center gap-4">
-                      <span className="w-24 text-sm text-muted-foreground truncate">{cat}</span>
-                      <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
-                        <div 
-                          className={`h-full rounded-full transition-all ${isGood ? 'bg-emerald-500' : 'bg-amber-500'}`}
-                          style={{ width: `${performance}%` }}
-                        />
-                      </div>
-                      <span className={`text-sm font-mono w-12 text-right ${isGood ? 'text-emerald-500' : 'text-amber-500'}`}>
-                        {performance.toFixed(0)}%
-                      </span>
+                {data?.categoryRanking?.map((cat, idx) => (
+                  <div key={cat.code} className="flex items-center gap-4">
+                    <span className="w-6 text-sm text-muted-foreground font-mono">#{idx + 1}</span>
+                    <div 
+                      className="w-3 h-3 rounded-full flex-shrink-0" 
+                      style={{ backgroundColor: cat.hex }}
+                    />
+                    <span className="w-32 text-sm truncate">{cat.name}</span>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${cat.percentage}%`, backgroundColor: cat.hex }}
+                      />
                     </div>
-                  );
-                })}
+                    <span className="text-sm font-mono w-20 text-right">
+                      {cat.weight.toFixed(1)} kg
+                    </span>
+                    <span className="text-sm font-mono w-16 text-right text-muted-foreground">
+                      {cat.percentage.toFixed(1)}%
+                    </span>
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>
+
+          {isHQ && !isViewingSpecificHospital && (
+            <HospitalSearchList
+              hospitals={data?.hospitalTimeStats || []}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onHospitalClick={(id) => navigate(`/analytics/${id}`)}
+              metricLabel="Toplama"
+              metricValue={(h) => `${h.collectionsCount}`}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="risk" className="space-y-6 mt-6">
-          <div className="grid lg:grid-cols-2 gap-6">
-            <RiskMatrix 
-              data={data?.riskMatrix || []} 
-              onCellClick={(cell) => setSelectedRiskCell(cell)}
-            />
-            {selectedRiskCell ? (
-              <RiskActionPanel
-                risk={selectedRiskCell.risk}
-                category={selectedRiskCell.label}
-                actions={[
-                  "Atık ayrıştırma eğitimi düzenle",
-                  "Görsel uyarı materyallerini güncelle",
-                  "Haftalık denetim programı başlat",
-                  "Personel performans takibi yap"
-                ]}
-              />
-            ) : (
-              <Card>
-                <CardContent className="flex items-center justify-center h-full min-h-[200px] text-muted-foreground">
-                  <div className="text-center">
-                    <AlertOctagon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                    <p className="text-sm">Detay görmek için risk hücresine tıklayın</p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </TabsContent>
-
-        {isHQ && (
-          <TabsContent value="compare" className="space-y-6 mt-6">
+          <div className="grid lg:grid-cols-3 gap-4">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <Building2 className="h-4 w-4" />
-                  Hastane Karşılaştırması
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {data?.hospitalComparison?.map((hospital, idx) => (
+              <CardContent className="p-4 text-center">
+                <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full mb-3 ${
+                  data?.riskMatrix.overallRisk === 'high' ? 'bg-rose-500/20' :
+                  data?.riskMatrix.overallRisk === 'medium' ? 'bg-amber-500/20' : 'bg-emerald-500/20'
+                }`}>
+                  <AlertOctagon className={`h-8 w-8 ${
+                    data?.riskMatrix.overallRisk === 'high' ? 'text-rose-400' :
+                    data?.riskMatrix.overallRisk === 'medium' ? 'text-amber-400' : 'text-emerald-400'
+                  }`} />
+                </div>
+                <p className="text-2xl font-bold">{data?.riskMatrix.riskScore || 0}</p>
+                <p className="text-sm text-muted-foreground">Genel Risk Skoru</p>
+                <Badge variant="outline" className={`mt-2 ${riskColors[data?.riskMatrix.overallRisk || 'low']}`}>
+                  {data?.riskMatrix.overallRisk === 'high' ? 'Yüksek Risk' :
+                   data?.riskMatrix.overallRisk === 'medium' ? 'Orta Risk' : 'Düşük Risk'}
+                </Badge>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-3 bg-amber-500/20">
+                  <AlertTriangle className="h-8 w-8 text-amber-400" />
+                </div>
+                <p className="text-2xl font-bold">{data?.riskMatrix.openIssues || 0}</p>
+                <p className="text-sm text-muted-foreground">Açık Uygunsuzluk</p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardContent className="p-4 text-center">
+                <div className="inline-flex items-center justify-center w-16 h-16 rounded-full mb-3 bg-emerald-500/20">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-400" />
+                </div>
+                <p className="text-2xl font-bold">{data?.riskMatrix.resolvedIssues || 0}</p>
+                <p className="text-sm text-muted-foreground">Çözülen Uygunsuzluk</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm font-medium">Kategori Bazlı Risk Dağılımı</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {data?.riskMatrix.byCategory && data.riskMatrix.byCategory.length > 0 ? (
+                <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {data.riskMatrix.byCategory.map((cat) => (
                     <div 
-                      key={idx}
-                      className="p-4 rounded-md bg-muted/50 space-y-3"
-                      data-testid={`hospital-compare-${hospital.hospitalCode}`}
+                      key={cat.category}
+                      className={`p-4 rounded-md border ${riskColors[cat.severity]}`}
                     >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div 
-                            className="w-3 h-3 rounded-full" 
-                            style={{ backgroundColor: hospital.hex }}
-                          />
-                          <span className="font-medium">{hospital.hospitalName}</span>
-                        </div>
-                        <Badge variant="outline">
-                          {hospital.totalWeight.toFixed(1)} kg
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium">
+                          {categoryLabels[cat.category] || cat.category}
+                        </span>
+                        <Badge variant="outline" className={riskColors[cat.severity]}>
+                          {cat.count}
                         </Badge>
                       </div>
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Tıbbi Oran</p>
-                          <p className="text-lg font-mono font-bold text-rose-500">
-                            {(hospital.medicalRatio * 100).toFixed(1)}%
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Geri Dönüşüm</p>
-                          <p className="text-lg font-mono font-bold text-cyan-500">
-                            {(hospital.recycleRatio * 100).toFixed(1)}%
-                          </p>
-                        </div>
-                        <div>
-                          <p className="text-xs text-muted-foreground mb-1">Verimlilik</p>
-                          <p className="text-lg font-mono font-bold text-emerald-500">
-                            {(hospital.efficiency * 100).toFixed(0)}%
-                          </p>
-                        </div>
+                      <div className="h-2 bg-background/50 rounded-full overflow-hidden">
+                        <div 
+                          className={`h-full rounded-full ${
+                            cat.severity === 'high' ? 'bg-rose-500' :
+                            cat.severity === 'medium' ? 'bg-amber-500' : 'bg-emerald-500'
+                          }`}
+                          style={{ width: `${Math.min(cat.count * 10, 100)}%` }}
+                        />
                       </div>
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        )}
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <CheckCircle2 className="h-12 w-12 mb-3 opacity-50 text-emerald-500" />
+                  <p className="text-sm">Açık uygunsuzluk bulunmuyor</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {isHQ && !isViewingSpecificHospital && (
+            <HospitalSearchList
+              hospitals={data?.hospitalTimeStats || []}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onHospitalClick={(id) => navigate(`/analytics/${id}`)}
+              metricLabel="Uygunsuzluk"
+              metricValue={(h) => `${h.issueCount}`}
+              metricColor={(h) => h.issueCount > 0 ? 'text-amber-400' : 'text-emerald-400'}
+            />
+          )}
+        </TabsContent>
 
         <TabsContent value="cost" className="space-y-6 mt-6">
           <div className="grid lg:grid-cols-3 gap-4">
             <KPICard
               title="Toplam Maliyet"
-              value={totalCost.toFixed(2)}
+              value={(data?.totalCost || 0).toFixed(2)}
               unit="TL"
               icon={Coins}
               iconColorClass="text-amber-500"
             />
             <KPICard
               title="Ortalama kg/TL"
-              value={(totalCost / (data?.costAnalysis?.reduce((s, c) => s + c.weight, 0) || 1)).toFixed(2)}
+              value={((data?.totalCost || 0) / Math.max(data?.costAnalysis?.reduce((s, c) => s + c.weight, 0) || 1, 1)).toFixed(2)}
               unit="TL"
               icon={Target}
             />
@@ -357,7 +437,7 @@ export default function AnalyticsPage() {
                       <span className="text-muted-foreground font-mono">
                         {item.weight.toFixed(1)} kg
                       </span>
-                      <span className="text-muted-foreground">×</span>
+                      <span className="text-muted-foreground">x</span>
                       <span className={`font-mono ${item.unitCost < 0 ? 'text-emerald-500' : ''}`}>
                         {item.unitCost.toFixed(2)} TL
                       </span>
@@ -371,15 +451,126 @@ export default function AnalyticsPage() {
               </div>
             </CardContent>
           </Card>
+
+          {isHQ && !isViewingSpecificHospital && (
+            <div className="grid lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <TrendingDown className="h-4 w-4 text-emerald-500" />
+                    En Düşük Maliyet (En İyi 3)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {data?.bestHospitals?.map((h, idx) => (
+                      <div 
+                        key={h.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-emerald-500/10 border border-emerald-500/20 cursor-pointer hover-elevate"
+                        onClick={() => navigate(`/analytics/${h.id}`)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center text-xs font-bold text-emerald-400">
+                            {idx + 1}
+                          </span>
+                          <div 
+                            className="w-2 h-2 rounded-full" 
+                            style={{ backgroundColor: h.hex }}
+                          />
+                          <span className="text-sm font-medium">{h.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-emerald-400 font-bold">
+                            {h.totalCost.toFixed(2)} TL
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-rose-500" />
+                    En Yüksek Maliyet (Son 3)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {data?.worstHospitals?.map((h, idx) => (
+                      <div 
+                        key={h.id}
+                        className="flex items-center justify-between p-3 rounded-md bg-rose-500/10 border border-rose-500/20 cursor-pointer hover-elevate"
+                        onClick={() => navigate(`/analytics/${h.id}`)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-rose-500/20 flex items-center justify-center text-xs font-bold text-rose-400">
+                            {idx + 1}
+                          </span>
+                          <div 
+                            className="w-2 h-2 rounded-full" 
+                            style={{ backgroundColor: h.hex }}
+                          />
+                          <span className="text-sm font-medium">{h.name}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-rose-400 font-bold">
+                            {h.totalCost.toFixed(2)} TL
+                          </span>
+                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {isHQ && !isViewingSpecificHospital && (
+            <HospitalSearchList
+              hospitals={data?.hospitalCosts || []}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onHospitalClick={(id) => navigate(`/analytics/${id}`)}
+              metricLabel="Maliyet"
+              metricValue={(h) => `${h.totalCost.toFixed(2)} TL`}
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="time" className="space-y-6 mt-6">
+          <div className="grid lg:grid-cols-3 gap-4">
+            <KPICard
+              title="Ortalama Toplama Süresi"
+              value={(data?.avgCollectionTime || 15).toFixed(0)}
+              unit="dk"
+              icon={Clock}
+              iconColorClass="text-blue-500"
+            />
+            <KPICard
+              title="Toplam Toplama"
+              value={data?.kpis.totalCollections?.toString() || "0"}
+              unit="adet"
+              icon={Activity}
+            />
+            <KPICard
+              title="En Yoğun Saat"
+              value={data?.timeAnalysis?.reduce((max, t) => t.weight > max.weight ? t : max, { hour: 0, weight: 0 }).hour.toString().padStart(2, '0') + ":00" || "09:00"}
+              unit=""
+              icon={Target}
+            />
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-medium">Saatlik Atık Toplama Dağılımı</CardTitle>
             </CardHeader>
             <CardContent>
-              <TimeChart data={data?.timeAnalysis || []} />
+              <TimeChart data={data?.timeAnalysis?.map(t => ({ hour: t.hour, value: t.weight })) || []} />
             </CardContent>
           </Card>
 
@@ -391,14 +582,22 @@ export default function AnalyticsPage() {
               <CardContent>
                 <div className="space-y-2">
                   {(data?.timeAnalysis || [])
-                    .sort((a, b) => b.value - a.value)
+                    .sort((a, b) => b.weight - a.weight)
                     .slice(0, 5)
                     .map((item, idx) => (
                       <div key={idx} className="flex items-center justify-between p-2 rounded bg-muted/50">
-                        <span className="font-mono text-sm">
-                          {item.hour.toString().padStart(2, '0')}:00
-                        </span>
-                        <span className="font-mono font-bold">{item.value.toFixed(1)} kg</span>
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center text-xs font-bold">
+                            {idx + 1}
+                          </span>
+                          <span className="font-mono text-sm">
+                            {item.hour.toString().padStart(2, '0')}:00
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-sm text-muted-foreground">{item.count} toplama</span>
+                          <span className="font-mono font-bold">{item.weight.toFixed(1)} kg</span>
+                        </div>
                       </div>
                     ))}
                 </div>
@@ -411,19 +610,24 @@ export default function AnalyticsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {[
-                    { name: "Sabah (08-16)", hours: [8,9,10,11,12,13,14,15] },
-                    { name: "Akşam (16-24)", hours: [16,17,18,19,20,21,22,23] },
-                    { name: "Gece (00-08)", hours: [0,1,2,3,4,5,6,7] }
-                  ].map((shift, idx) => {
-                    const total = shift.hours.reduce((sum, h) => {
-                      const found = data?.timeAnalysis?.find(t => t.hour === h);
-                      return sum + (found?.value || 0);
-                    }, 0);
+                  {data?.shiftAnalysis?.map((shift, idx) => {
+                    const maxWeight = Math.max(...(data?.shiftAnalysis?.map(s => s.weight) || [1]));
+                    const percentage = maxWeight > 0 ? (shift.weight / maxWeight) * 100 : 0;
                     return (
-                      <div key={idx} className="flex items-center justify-between p-3 rounded-md bg-muted/50">
-                        <span className="text-sm">{shift.name}</span>
-                        <span className="font-mono font-bold">{total.toFixed(1)} kg</span>
+                      <div key={idx} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm">{shift.name}</span>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-muted-foreground">{shift.count} toplama</span>
+                            <span className="font-mono font-bold">{shift.weight.toFixed(1)} kg</span>
+                          </div>
+                        </div>
+                        <div className="h-2 bg-muted rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-primary rounded-full transition-all"
+                            style={{ width: `${percentage}%` }}
+                          />
+                        </div>
                       </div>
                     );
                   })}
@@ -431,9 +635,110 @@ export default function AnalyticsPage() {
               </CardContent>
             </Card>
           </div>
+
+          {isHQ && !isViewingSpecificHospital && (
+            <HospitalSearchList
+              hospitals={data?.hospitalTimeStats || []}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              onHospitalClick={(id) => navigate(`/analytics/${id}`)}
+              metricLabel="Ort. Süre"
+              metricValue={(h) => `${h.avgCollectionTime.toFixed(0)} dk`}
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+interface HospitalSearchListProps {
+  hospitals: { id: string; code: string; name: string; hex: string; [key: string]: any }[];
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  onHospitalClick: (id: string) => void;
+  metricLabel: string;
+  metricValue: (h: any) => string;
+  metricColor?: (h: any) => string;
+}
+
+function HospitalSearchList({ 
+  hospitals, 
+  searchQuery, 
+  onSearchChange, 
+  onHospitalClick,
+  metricLabel,
+  metricValue,
+  metricColor
+}: HospitalSearchListProps) {
+  const filtered = hospitals.filter(h =>
+    h.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    h.code.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <CardTitle className="text-sm font-medium flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-primary" />
+            Hastaneler
+          </CardTitle>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Hastane ara..."
+              value={searchQuery}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="pl-9 w-48"
+              data-testid="input-hospital-search"
+            />
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {filtered.length > 0 ? (
+          <div className="space-y-2">
+            {filtered.map((h) => (
+              <div 
+                key={h.id}
+                className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer"
+                onClick={() => onHospitalClick(h.id)}
+                data-testid={`hospital-row-${h.id}`}
+              >
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div 
+                    className="w-2 h-2 rounded-full flex-shrink-0" 
+                    style={{ backgroundColor: h.hex }}
+                  />
+                  <span className="font-medium truncate">{h.name}</span>
+                  <Badge variant="outline" className="text-xs font-mono">
+                    {h.code}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`text-sm font-mono ${metricColor?.(h) || ''}`}>
+                    {metricLabel}: {metricValue(h)}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : searchQuery ? (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+            <Search className="h-8 w-8 mb-2 opacity-50" />
+            <p className="text-sm">"{searchQuery}" ile eşleşen hastane bulunamadı</p>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+            <Building2 className="h-8 w-8 mb-2 opacity-50" />
+            <p className="text-sm">Hastane verisi yok</p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
