@@ -4,7 +4,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { 
   Settings2, MapPin, Database, Save, Plus, Edit3, 
   Trash2, Loader2, Building2, CheckCircle2, QrCode,
-  Printer, X, Eye
+  Printer, X, Eye, DollarSign
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,15 @@ interface OperationalCoefficient {
   value: string;
 }
 
+interface WasteTypeCost {
+  id: string;
+  wasteTypeId: string;
+  wasteTypeName: string;
+  wasteTypeCode: string;
+  period: string;
+  costPerKg: string;
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const currentHospital = useCurrentHospital();
@@ -71,7 +80,11 @@ export default function SettingsPage() {
     enabled: !!hospitalId,
   });
 
-  const isLoading = categoriesLoading || locationsLoading || coefficientsLoading;
+  const { data: wasteTypeCosts, isLoading: costsLoading } = useQuery<WasteTypeCost[]>({
+    queryKey: ["/api/settings/waste-type-costs"],
+  });
+
+  const isLoading = categoriesLoading || locationsLoading || coefficientsLoading || costsLoading;
 
   const handleShowQR = (location: Location) => {
     setSelectedLocation(location);
@@ -94,7 +107,7 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-3 h-auto">
+        <TabsList className="grid w-full grid-cols-4 h-auto">
           <TabsTrigger value="locations" className="gap-2" data-testid="tab-locations">
             <QrCode className="h-4 w-4" />
             <span className="hidden sm:inline">Mahaller</span>
@@ -106,6 +119,10 @@ export default function SettingsPage() {
           <TabsTrigger value="categories" className="gap-2" data-testid="tab-categories">
             <Settings2 className="h-4 w-4" />
             <span className="hidden sm:inline">Kategoriler</span>
+          </TabsTrigger>
+          <TabsTrigger value="costs" className="gap-2" data-testid="tab-costs">
+            <DollarSign className="h-4 w-4" />
+            <span className="hidden sm:inline">Maliyetler</span>
           </TabsTrigger>
         </TabsList>
 
@@ -224,6 +241,30 @@ export default function SettingsPage() {
             <CardContent>
               <CategoryReferenceForm 
                 categories={categories || []} 
+                isEditable={isHQ}
+              />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="costs" className="space-y-6 mt-6">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-sm font-medium">Atık Tipi Maliyetleri</CardTitle>
+                  <CardDescription>Dönemsel maliyet tanımları (TL/kg)</CardDescription>
+                </div>
+                {!isHQ && (
+                  <Badge variant="secondary" className="text-xs">
+                    Sadece görüntüleme
+                  </Badge>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <WasteTypeCostsForm 
+                costs={wasteTypeCosts || []} 
                 isEditable={isHQ}
               />
             </CardContent>
@@ -720,6 +761,158 @@ function CoefficientForm({
           Kaydet
         </Button>
       </div>
+    </div>
+  );
+}
+
+const WASTE_TYPE_COLORS: Record<string, string> = {
+  medical: "#e11d48",
+  hazardous: "#f59e0b", 
+  domestic: "#64748b",
+  recycle: "#06b6d4"
+};
+
+function WasteTypeCostsForm({ 
+  costs, 
+  isEditable 
+}: { 
+  costs: WasteTypeCost[];
+  isEditable: boolean;
+}) {
+  const { toast } = useToast();
+  const [selectedPeriod, setSelectedPeriod] = useState("2025-01");
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    costs.forEach(c => {
+      initial[c.wasteTypeId] = c.costPerKg;
+    });
+    return initial;
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
+
+  const filteredCosts = costs.filter(c => c.period === selectedPeriod);
+
+  const handleValueChange = (wasteTypeId: string, value: string) => {
+    setValues(prev => ({ ...prev, [wasteTypeId]: value }));
+    setEditedIds(prev => new Set(prev).add(wasteTypeId));
+  };
+
+  const handleSave = async () => {
+    if (editedIds.size === 0) return;
+    
+    setIsSaving(true);
+    try {
+      const costsToUpdate = Array.from(editedIds).map(wasteTypeId => ({
+        wasteTypeId,
+        costPerKg: parseFloat(values[wasteTypeId]) || 0
+      }));
+
+      await apiRequest("POST", "/api/settings/waste-type-costs", {
+        period: selectedPeriod,
+        costs: costsToUpdate
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/waste-type-costs"] });
+      toast({
+        title: "Kaydedildi",
+        description: "Atık maliyetleri güncellendi",
+      });
+      setEditedIds(new Set());
+    } catch (error: any) {
+      const message = error?.message?.includes("403") 
+        ? "Bu işlem için yetkiniz yok" 
+        : "Kayıt sırasında bir hata oluştu";
+      toast({
+        title: "Hata",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (filteredCosts.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+        <DollarSign className="h-8 w-8 mb-2 opacity-50" />
+        <p className="text-sm">Bu dönem için maliyet tanımı yok</p>
+        <p className="text-xs mt-1">Seçili dönem: {selectedPeriod}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-end gap-2 mb-4">
+        <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+          <SelectTrigger className="w-36" data-testid="select-cost-period">
+            <SelectValue placeholder="Dönem" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="2025-01">Ocak 2025</SelectItem>
+            <SelectItem value="2024-12">Aralık 2024</SelectItem>
+            <SelectItem value="2024-11">Kasım 2024</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {filteredCosts.map((cost) => (
+        <div 
+          key={cost.id} 
+          className="flex items-center gap-4 p-3 rounded-md bg-muted/50"
+          data-testid={`cost-row-${cost.wasteTypeCode}`}
+        >
+          <div 
+            className="w-3 h-3 rounded-full flex-shrink-0"
+            style={{ backgroundColor: WASTE_TYPE_COLORS[cost.wasteTypeCode] || "#888" }}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium">{cost.wasteTypeName}</span>
+              <Badge variant="outline" className="text-xs font-mono">
+                {cost.wasteTypeCode}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Dönem: {cost.period}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isEditable ? (
+              <>
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="w-24 text-right font-mono"
+                  value={values[cost.wasteTypeId] || ""}
+                  onChange={(e) => handleValueChange(cost.wasteTypeId, e.target.value)}
+                  data-testid={`input-cost-${cost.wasteTypeCode}`}
+                />
+                <span className="text-sm text-muted-foreground">TL/kg</span>
+              </>
+            ) : (
+              <span className="font-mono text-sm">
+                {cost.costPerKg} TL/kg
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {isEditable && editedIds.size > 0 && (
+        <div className="flex justify-end pt-4 border-t">
+          <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-costs">
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Kaydet
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@ import { db } from "./db";
 import bcrypt from "bcrypt";
 import { 
   users, hospitals, roles, userHospitals, userRoles,
-  wasteTypes, locationCategories, locations, wasteCollections
+  wasteTypes, locationCategories, locations, wasteCollections, wasteTypeCosts
 } from "@shared/schema";
 import { sql } from "drizzle-orm";
 
@@ -196,6 +196,13 @@ export async function seedDatabase() {
         isManualWeight: true
       });
     }
+
+    await db.insert(wasteTypeCosts).values([
+      { wasteTypeId: medicalType.id, period: "2025-01", costPerKg: "15.00" },
+      { wasteTypeId: hazardousType.id, period: "2025-01", costPerKg: "25.00" },
+      { wasteTypeId: domesticType.id, period: "2025-01", costPerKg: "2.00" },
+      { wasteTypeId: recycleType.id, period: "2025-01", costPerKg: "-1.00" },
+    ]);
 
     console.log("Database seeded successfully!");
   } catch (error) {
