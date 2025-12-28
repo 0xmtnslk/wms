@@ -1,12 +1,15 @@
+import { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { 
   Scale, Activity, Clock, AlertTriangle, TrendingUp, 
-  Building2, Loader2, RefreshCcw 
+  Building2, Loader2, RefreshCcw, Search, ChevronRight
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
 import { DonutChart } from "@/components/charts/donut-chart";
 import { BarChart } from "@/components/charts/bar-chart";
 import { KPICard } from "@/components/kpi-card";
@@ -17,6 +20,17 @@ import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 
+interface HospitalSummary {
+  id: string;
+  code: string;
+  name: string;
+  totalWeight: number;
+  pendingCount: number;
+  completedCount: number;
+  issueCount: number;
+  lastCollectionAt: string | null;
+}
+
 interface DashboardSummary {
   totalWeight: number;
   pendingCount: number;
@@ -24,6 +38,7 @@ interface DashboardSummary {
   issueCount: number;
   byType: { code: string; label: string; weight: number; hex: string }[];
   byHospital: { code: string; name: string; weight: number; hex: string }[];
+  hospitals: HospitalSummary[];
   recentCollections: {
     id: string;
     tagCode: string;
@@ -40,12 +55,30 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const currentHospital = useCurrentHospital();
   const isHQ = useIsHQ();
+  const [, navigate] = useLocation();
+  const [searchQuery, setSearchQuery] = useState("");
 
   const hospitalId = isHQ ? undefined : currentHospital?.id;
 
   const { data, isLoading, refetch, isRefetching } = useQuery<DashboardSummary>({
     queryKey: ["/api/dashboard/summary", hospitalId],
   });
+
+  const filteredHospitals = useMemo(() => {
+    if (!data?.hospitals) return [];
+    const sorted = [...data.hospitals].sort((a, b) => {
+      if (!a.lastCollectionAt && !b.lastCollectionAt) return 0;
+      if (!a.lastCollectionAt) return 1;
+      if (!b.lastCollectionAt) return -1;
+      return new Date(b.lastCollectionAt).getTime() - new Date(a.lastCollectionAt).getTime();
+    });
+    if (!searchQuery.trim()) return sorted;
+    const query = searchQuery.toLowerCase();
+    return sorted.filter(h => 
+      h.name.toLowerCase().includes(query) || 
+      h.code.toLowerCase().includes(query)
+    );
+  }, [data?.hospitals, searchQuery]);
 
   if (isLoading) {
     return <DashboardSkeleton />;
@@ -199,52 +232,124 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Clock className="h-4 w-4 text-primary" />
-            Son İşlemler
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {data?.recentCollections && data.recentCollections.length > 0 ? (
-            <div className="space-y-2">
-              {data.recentCollections.slice(0, 10).map((item) => (
-                <div 
-                  key={item.id}
-                  className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate"
-                  data-testid={`collection-row-${item.id}`}
-                >
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <code className="text-xs font-mono bg-background px-2 py-1 rounded">
-                      {item.tagCode}
-                    </code>
-                    <WasteTypeBadge code={item.wasteTypeCode} size="sm" />
-                    {isHQ && (
-                      <span className="text-xs text-muted-foreground truncate">
-                        {item.hospitalName}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    {item.weightKg !== null && (
-                      <span className="text-sm font-mono font-medium">
-                        {Number(item.weightKg).toFixed(2)} kg
-                      </span>
-                    )}
-                    <StatusBadge status={item.status as any} />
-                  </div>
-                </div>
-              ))}
+      {isHQ ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-primary" />
+                Hastaneler
+              </CardTitle>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Hastane ara..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-48"
+                  data-testid="input-hospital-search"
+                />
+              </div>
             </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-              <Activity className="h-8 w-8 mb-2 opacity-50" />
-              <p className="text-sm">Henüz işlem kaydı yok</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardHeader>
+          <CardContent>
+            {filteredHospitals.length > 0 ? (
+              <div className="space-y-2">
+                {filteredHospitals.map((hospital) => (
+                  <div 
+                    key={hospital.id}
+                    className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer"
+                    onClick={() => navigate(`/analytics/${hospital.id}`)}
+                    data-testid={`hospital-row-${hospital.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <Building2 className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium truncate">{hospital.name}</span>
+                          <Badge variant="outline" className="text-xs font-mono">
+                            {hospital.code}
+                          </Badge>
+                        </div>
+                        {hospital.lastCollectionAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Son işlem: {format(new Date(hospital.lastCollectionAt), "d MMM HH:mm", { locale: tr })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right">
+                        <p className="text-sm font-mono font-medium">{hospital.totalWeight.toFixed(1)} kg</p>
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <span className="text-amber-500">{hospital.pendingCount} bekleyen</span>
+                          {hospital.issueCount > 0 && (
+                            <span className="text-rose-500">{hospital.issueCount} uygunsuz</span>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : searchQuery ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Search className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">"{searchQuery}" ile eşleşen hastane bulunamadı</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Building2 className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">Hastane verisi yok</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary" />
+              Son İşlemler
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {data?.recentCollections && data.recentCollections.length > 0 ? (
+              <div className="space-y-2">
+                {data.recentCollections.slice(0, 10).map((item) => (
+                  <div 
+                    key={item.id}
+                    className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate"
+                    data-testid={`collection-row-${item.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <code className="text-xs font-mono bg-background px-2 py-1 rounded">
+                        {item.tagCode}
+                      </code>
+                      <WasteTypeBadge code={item.wasteTypeCode} size="sm" />
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {item.weightKg !== null && (
+                        <span className="text-sm font-mono font-medium">
+                          {Number(item.weightKg).toFixed(2)} kg
+                        </span>
+                      )}
+                      <StatusBadge status={item.status as any} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Activity className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">Henüz işlem kaydı yok</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

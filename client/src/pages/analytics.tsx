@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useRoute, useLocation } from "wouter";
 import { 
   BarChart3, GitCompare, AlertOctagon, Target, Coins, Clock,
-  TrendingUp, TrendingDown, Building2, Loader2, ChevronDown
+  TrendingUp, TrendingDown, Building2, Loader2, ChevronDown, ArrowLeft
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -54,14 +55,31 @@ interface AnalyticsData {
   }[];
 }
 
+interface Hospital {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export default function AnalyticsPage() {
   const { user } = useAuth();
   const currentHospital = useCurrentHospital();
   const isHQ = useIsHQ();
+  const [, navigate] = useLocation();
+  const [match, params] = useRoute("/analytics/:hospitalId");
   const [activeTab, setActiveTab] = useState("kpi");
   const [selectedRiskCell, setSelectedRiskCell] = useState<any>(null);
 
-  const hospitalId = isHQ ? undefined : currentHospital?.id;
+  const urlHospitalId = params?.hospitalId;
+  const hospitalId = urlHospitalId || (isHQ ? undefined : currentHospital?.id);
+  const isViewingSpecificHospital = !!urlHospitalId;
+
+  const { data: hospitalsData } = useQuery<Hospital[]>({
+    queryKey: ["/api/hospitals"],
+    enabled: isViewingSpecificHospital,
+  });
+
+  const viewingHospital = hospitalsData?.find(h => h.id === urlHospitalId);
 
   const { data, isLoading } = useQuery<AnalyticsData>({
     queryKey: ["/api/analytics", hospitalId],
@@ -73,14 +91,30 @@ export default function AnalyticsPage() {
 
   const totalCost = data?.costAnalysis?.reduce((sum, c) => sum + c.totalCost, 0) || 0;
 
+  const displayName = isViewingSpecificHospital 
+    ? viewingHospital?.name || "Hastane" 
+    : (isHQ ? "Tüm hastaneler" : currentHospital?.name);
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Analitik</h1>
-          <p className="text-muted-foreground text-sm">
-            {isHQ ? "Tüm hastaneler" : currentHospital?.name} - Performans ve risk analizi
-          </p>
+        <div className="flex items-center gap-3">
+          {isViewingSpecificHospital && (
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => navigate("/")}
+              data-testid="button-back"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold">Analitik</h1>
+            <p className="text-muted-foreground text-sm">
+              {displayName} - Performans ve risk analizi
+            </p>
+          </div>
         </div>
       </div>
 

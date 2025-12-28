@@ -4,7 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/lib/theme-provider";
-import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { AuthProvider, useAuth, useIsHQ } from "@/lib/auth-context";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { HospitalSelector } from "@/components/hospital-selector";
@@ -23,6 +23,7 @@ function AuthenticatedRouter() {
     <Switch>
       <Route path="/" component={DashboardPage} />
       <Route path="/analytics" component={AnalyticsPage} />
+      <Route path="/analytics/:hospitalId" component={AnalyticsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/issues" component={IssuesPage} />
       <Route path="/collector" component={CollectorPage} />
@@ -32,6 +33,7 @@ function AuthenticatedRouter() {
 }
 
 function AuthenticatedLayout() {
+  const isHQ = useIsHQ();
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -47,7 +49,7 @@ function AuthenticatedLayout() {
               <SidebarTrigger data-testid="button-sidebar-toggle" />
             </div>
             <div className="flex items-center gap-2">
-              <HospitalSelector />
+              {!isHQ && <HospitalSelector />}
               <ThemeToggle />
             </div>
           </header>

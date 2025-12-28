@@ -373,6 +373,25 @@ export class DatabaseStorage implements IStorage {
       })
     );
 
+    const hospitalsData = allHospitals.map(h => {
+      const hospitalCollections = collections.filter(c => c.hospitalId === h.id);
+      const hospitalIssues = allIssues.filter(i => i.hospitalId === h.id && !i.isResolved);
+      const lastCollection = hospitalCollections
+        .filter(c => c.collectedAt)
+        .sort((a, b) => new Date(b.collectedAt!).getTime() - new Date(a.collectedAt!).getTime())[0];
+      
+      return {
+        id: h.id,
+        code: h.code,
+        name: h.name,
+        totalWeight: hospitalCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
+        pendingCount: hospitalCollections.filter(c => c.status === 'pending').length,
+        completedCount: hospitalCollections.filter(c => c.status === 'completed').length,
+        issueCount: hospitalIssues.length,
+        lastCollectionAt: lastCollection?.collectedAt?.toISOString() || null
+      };
+    });
+
     return {
       totalWeight,
       pendingCount,
@@ -380,6 +399,7 @@ export class DatabaseStorage implements IStorage {
       issueCount,
       byType,
       byHospital,
+      hospitals: hospitalsData,
       recentCollections
     };
   }
