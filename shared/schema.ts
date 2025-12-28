@@ -90,6 +90,15 @@ export const operationalCoefficients = pgTable("operational_coefficients", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const wasteTypeCosts = pgTable("waste_type_costs", {
+  id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
+  wasteTypeId: varchar("waste_type_id", { length: 36 }).notNull().references(() => wasteTypes.id),
+  period: varchar("period", { length: 7 }).notNull(),
+  costPerKg: decimal("cost_per_kg", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 export const wasteCollections = pgTable("waste_collections", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   hospitalId: varchar("hospital_id", { length: 36 }).notNull().references(() => hospitals.id),
@@ -175,6 +184,10 @@ export const operationalCoefficientsRelations = relations(operationalCoefficient
   category: one(locationCategories, { fields: [operationalCoefficients.categoryId], references: [locationCategories.id] }),
 }));
 
+export const wasteTypeCostsRelations = relations(wasteTypeCosts, ({ one }) => ({
+  wasteType: one(wasteTypes, { fields: [wasteTypeCosts.wasteTypeId], references: [wasteTypes.id] }),
+}));
+
 export const wasteCollectionsRelations = relations(wasteCollections, ({ one, many }) => ({
   hospital: one(hospitals, { fields: [wasteCollections.hospitalId], references: [hospitals.id] }),
   location: one(locations, { fields: [wasteCollections.locationId], references: [locations.id] }),
@@ -198,6 +211,7 @@ export const insertWasteTypeSchema = createInsertSchema(wasteTypes).omit({ id: t
 export const insertLocationCategorySchema = createInsertSchema(locationCategories).omit({ id: true });
 export const insertLocationSchema = createInsertSchema(locations).omit({ id: true });
 export const insertOperationalCoefficientSchema = createInsertSchema(operationalCoefficients).omit({ id: true, createdAt: true });
+export const insertWasteTypeCostSchema = createInsertSchema(wasteTypeCosts).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertWasteCollectionSchema = createInsertSchema(wasteCollections).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertIssueSchema = createInsertSchema(issues).omit({ id: true, reportedAt: true, resolvedAt: true });
 export const insertSyncLogSchema = createInsertSchema(syncLogs).omit({ id: true, startedAt: true, finishedAt: true });
@@ -220,6 +234,8 @@ export type InsertLocation = z.infer<typeof insertLocationSchema>;
 export type Location = typeof locations.$inferSelect;
 export type InsertOperationalCoefficient = z.infer<typeof insertOperationalCoefficientSchema>;
 export type OperationalCoefficient = typeof operationalCoefficients.$inferSelect;
+export type InsertWasteTypeCost = z.infer<typeof insertWasteTypeCostSchema>;
+export type WasteTypeCost = typeof wasteTypeCosts.$inferSelect;
 export type InsertWasteCollection = z.infer<typeof insertWasteCollectionSchema>;
 export type WasteCollection = typeof wasteCollections.$inferSelect;
 export type InsertIssue = z.infer<typeof insertIssueSchema>;
