@@ -90,7 +90,7 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {(isManager || isHQ) && isCollector && (
+        {isManager && !isHQ && isCollector && (
           <SidebarGroup>
             <SidebarGroupLabel>Saha</SidebarGroupLabel>
             <SidebarGroupContent>
