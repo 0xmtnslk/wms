@@ -198,10 +198,10 @@ export async function seedDatabase() {
     }
 
     await db.insert(wasteTypeCosts).values([
-      { wasteTypeId: medicalType.id, period: "2025-01", costPerKg: "15.00" },
-      { wasteTypeId: hazardousType.id, period: "2025-01", costPerKg: "25.00" },
-      { wasteTypeId: domesticType.id, period: "2025-01", costPerKg: "2.00" },
-      { wasteTypeId: recycleType.id, period: "2025-01", costPerKg: "-1.00" },
+      { wasteTypeId: medicalType.id, effectiveFrom: "2025-01-01", costPerKg: "15.00" },
+      { wasteTypeId: hazardousType.id, effectiveFrom: "2025-01-01", costPerKg: "25.00" },
+      { wasteTypeId: domesticType.id, effectiveFrom: "2025-01-01", costPerKg: "2.00" },
+      { wasteTypeId: recycleType.id, effectiveFrom: "2025-01-01", costPerKg: "-1.00" },
     ]);
 
     console.log("Database seeded successfully!");
