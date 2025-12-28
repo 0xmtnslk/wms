@@ -88,32 +88,22 @@ function getPeriodDates(period: PeriodType, customRange: DateRange): { start: Da
   }
 }
 
-function ScoreBar({ score, wasteIndex }: { score: number; wasteIndex: number }) {
-  const redWidth = Math.min(wasteIndex * 60, 60);
-  const yellowWidth = Math.min(Math.max(0, (wasteIndex - 1) * 20), 20);
-  const greenWidth = Math.max(0, 100 - redWidth - yellowWidth);
+function ScoreBar({ score }: { score: number }) {
+  const normalizedScore = Math.max(0, Math.min(100, score));
+  
+  const getColor = (s: number) => {
+    if (s >= 70) return '#22c55e';
+    if (s >= 40) return '#eab308';
+    return '#ef4444';
+  };
   
   return (
-    <div className="h-2 rounded-full overflow-hidden flex bg-muted">
+    <div className="h-2 rounded-full overflow-hidden bg-muted">
       <div 
-        className="h-full transition-all" 
+        className="h-full transition-all rounded-full" 
         style={{ 
-          width: `${redWidth}%`, 
-          backgroundColor: '#ef4444' 
-        }} 
-      />
-      <div 
-        className="h-full transition-all" 
-        style={{ 
-          width: `${yellowWidth}%`, 
-          backgroundColor: '#eab308' 
-        }} 
-      />
-      <div 
-        className="h-full transition-all" 
-        style={{ 
-          width: `${greenWidth}%`, 
-          backgroundColor: '#22c55e' 
+          width: `${normalizedScore}%`, 
+          background: `linear-gradient(to right, ${getColor(normalizedScore)}, ${getColor(normalizedScore)})`
         }} 
       />
     </div>
@@ -157,7 +147,7 @@ function HospitalCard({ hospital, isExpanded, onToggle }: {
                 Atık Yükü Endeksi: <span className="font-mono">{hospital.wasteIndex.toFixed(2)}</span>
               </span>
             </div>
-            <ScoreBar score={hospital.score} wasteIndex={hospital.wasteIndex} />
+            <ScoreBar score={hospital.score} />
           </div>
           <Button variant="ghost" size="icon" className="shrink-0">
             {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -227,6 +217,17 @@ function HospitalPerformanceTab() {
 
   const { data, isLoading } = useQuery<{ hospitals: HospitalPerformance[] }>({
     queryKey: ["/api/detailed-analytics/performance", dates.start.toISOString(), dates.end.toISOString()],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        startDate: dates.start.toISOString(),
+        endDate: dates.end.toISOString()
+      });
+      const res = await fetch(`/api/detailed-analytics/performance?${params}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    }
   });
 
   if (isLoading) {
@@ -324,6 +325,18 @@ function CrossComparisonTab() {
 
   const { data, isLoading } = useQuery<CrossComparisonData>({
     queryKey: ["/api/detailed-analytics/comparison", metric, hospitalFilter, categoryFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        metric,
+        hospitalFilter,
+        categoryFilter
+      });
+      const res = await fetch(`/api/detailed-analytics/comparison?${params}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    }
   });
 
   const { data: categories } = useQuery<{ id: string; name: string }[]>({
