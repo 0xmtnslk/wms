@@ -759,6 +759,145 @@ export class DatabaseStorage implements IStorage {
 
     return { hospitals: comparisonData };
   }
+
+  async getReportsData(
+    startDate?: Date, 
+    endDate?: Date, 
+    hospitalFilter?: string,
+    wasteTypeFilter?: string,
+    categoryFilter?: string
+  ) {
+    const allHospitals = await this.getHospitals();
+    const allWasteTypes = await this.getWasteTypes();
+    const allLocations = await db.select().from(locations);
+    const allCategories = await this.getLocationCategories();
+    let allCollections = await db.select().from(wasteCollections);
+
+    if (startDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) >= startDate);
+    }
+    if (endDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) <= endDate);
+    }
+
+    const hospitalIds = hospitalFilter && hospitalFilter !== "all" ? hospitalFilter.split(',').filter(Boolean) : [];
+    if (hospitalIds.length > 0) {
+      allCollections = allCollections.filter(c => hospitalIds.includes(c.hospitalId));
+    }
+
+    if (wasteTypeFilter && wasteTypeFilter !== "all") {
+      allCollections = allCollections.filter(c => c.wasteTypeId === wasteTypeFilter);
+    }
+
+    if (categoryFilter && categoryFilter !== "all") {
+      const categoryLocations = allLocations.filter(l => l.categoryId === categoryFilter);
+      const locationIds = categoryLocations.map(l => l.id);
+      allCollections = allCollections.filter(c => c.locationId && locationIds.includes(c.locationId));
+    }
+
+    const hospitalsToShow = hospitalIds.length > 0
+      ? allHospitals.filter(h => hospitalIds.includes(h.id))
+      : allHospitals;
+
+    let totalWeight = 0, totalCost = 0, totalCollections = 0;
+    const wasteTypeBreakdown: Record<string, { name: string; code: string; weight: number; cost: number; color: string }> = {};
+    const hospitalBreakdown: Record<string, { name: string; code: string; weight: number; cost: number; color: string }> = {};
+    const categoryBreakdown: Record<string, { name: string; weight: number; cost: number }> = {};
+    const monthlyTrend: Record<string, { month: string; weight: number; cost: number }> = {};
+
+    allWasteTypes.forEach(wt => {
+      wasteTypeBreakdown[wt.id] = { name: wt.name, code: wt.code, weight: 0, cost: 0, color: wt.colorHex || '#888' };
+    });
+
+    hospitalsToShow.forEach(h => {
+      hospitalBreakdown[h.id] = { name: h.name, code: h.code, weight: 0, cost: 0, color: h.colorHex || '#888' };
+    });
+
+    allCategories.forEach(c => {
+      categoryBreakdown[c.id] = { name: c.name, weight: 0, cost: 0 };
+    });
+
+    allCollections.forEach(c => {
+      const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+      const w = parseFloat(c.weightKg as string) || 0;
+      const costPerKg = wt ? parseFloat(wt.costPerKg as string) : 0;
+      const cost = w * costPerKg;
+
+      totalWeight += w;
+      totalCost += cost;
+      totalCollections++;
+
+      if (wasteTypeBreakdown[c.wasteTypeId]) {
+        wasteTypeBreakdown[c.wasteTypeId].weight += w;
+        wasteTypeBreakdown[c.wasteTypeId].cost += cost;
+      }
+
+      if (hospitalBreakdown[c.hospitalId]) {
+        hospitalBreakdown[c.hospitalId].weight += w;
+        hospitalBreakdown[c.hospitalId].cost += cost;
+      }
+
+      if (c.locationId) {
+        const loc = allLocations.find(l => l.id === c.locationId);
+        if (loc && loc.categoryId && categoryBreakdown[loc.categoryId]) {
+          categoryBreakdown[loc.categoryId].weight += w;
+          categoryBreakdown[loc.categoryId].cost += cost;
+        }
+      }
+
+      if (c.collectedAt) {
+        const monthKey = new Date(c.collectedAt).toISOString().substring(0, 7);
+        if (!monthlyTrend[monthKey]) {
+          monthlyTrend[monthKey] = { month: monthKey, weight: 0, cost: 0 };
+        }
+        monthlyTrend[monthKey].weight += w;
+        monthlyTrend[monthKey].cost += cost;
+      }
+    });
+
+    const wasteTypesArray = Object.values(wasteTypeBreakdown).filter(w => w.weight > 0);
+    const hospitalsArray = Object.values(hospitalBreakdown).filter(h => h.weight > 0);
+    const categoriesArray = Object.values(categoryBreakdown).filter(c => c.weight > 0);
+    const trendArray = Object.values(monthlyTrend).sort((a, b) => a.month.localeCompare(b.month));
+
+    const tableData = allCollections.map(c => {
+      const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+      const h = allHospitals.find(h => h.id === c.hospitalId);
+      const loc = allLocations.find(l => l.id === c.locationId);
+      const cat = loc ? allCategories.find(ct => ct.id === loc.categoryId) : null;
+      const w = parseFloat(c.weightKg as string) || 0;
+      const costPerKg = wt ? parseFloat(wt.costPerKg as string) : 0;
+
+      return {
+        id: c.id,
+        date: c.collectedAt,
+        hospital: h?.name || 'Bilinmiyor',
+        hospitalCode: h?.code || '',
+        wasteType: wt?.name || 'Bilinmiyor',
+        wasteTypeCode: wt?.code || '',
+        category: cat?.name || 'Bilinmiyor',
+        location: loc?.customLabel || loc?.code || 'Bilinmiyor',
+        weightKg: w,
+        cost: w * costPerKg
+      };
+    });
+
+    return {
+      summary: {
+        totalWeight,
+        totalCost,
+        totalCollections,
+        hospitalCount: hospitalsToShow.length,
+        avgWeightPerCollection: totalCollections > 0 ? totalWeight / totalCollections : 0,
+        avgCostPerKg: totalWeight > 0 ? totalCost / totalWeight : 0
+      },
+      wasteTypes: wasteTypesArray,
+      hospitals: hospitalsArray,
+      categories: categoriesArray,
+      trend: trendArray,
+      tableData
+    };
+  }
 }
 
 export const storage = new DatabaseStorage();

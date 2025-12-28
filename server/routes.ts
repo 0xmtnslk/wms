@@ -614,5 +614,23 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/reports", requireAuth, async (req, res) => {
+    try {
+      const { startDate, endDate, hospitalFilter, wasteTypeFilter, categoryFilter } = req.query;
+      
+      const data = await storage.getReportsData(
+        startDate ? new Date(startDate as string) : undefined,
+        endDate ? new Date(endDate as string) : undefined,
+        hospitalFilter as string,
+        wasteTypeFilter as string,
+        categoryFilter as string
+      );
+      res.json(data);
+    } catch (error) {
+      console.error("Reports error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   return httpServer;
 }

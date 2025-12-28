@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { 
   LayoutDashboard, BarChart3, Settings, AlertTriangle, 
-  QrCode, LogOut, Building2, User, ChevronDown, TrendingUp
+  QrCode, LogOut, Building2, User, ChevronDown, TrendingUp, FileText
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,6 +31,7 @@ const managerMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Analitik", url: "/analytics", icon: BarChart3 },
   { title: "Detaylı Analiz & KPI", url: "/detailed-analytics", icon: TrendingUp },
+  { title: "Raporlar", url: "/reports", icon: FileText },
   { title: "Uygunsuzluklar", url: "/issues", icon: AlertTriangle },
   { title: "Ayarlar", url: "/settings", icon: Settings },
 ];

@@ -18,6 +18,7 @@ import DetailedAnalyticsPage from "@/pages/detailed-analytics";
 import SettingsPage from "@/pages/settings";
 import IssuesPage from "@/pages/issues";
 import CollectorPage from "@/pages/collector";
+import ReportsPage from "@/pages/reports";
 
 function AuthenticatedRouter() {
   return (
@@ -26,6 +27,7 @@ function AuthenticatedRouter() {
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/analytics/:hospitalId" component={AnalyticsPage} />
       <Route path="/detailed-analytics" component={DetailedAnalyticsPage} />
+      <Route path="/reports" component={ReportsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/issues" component={IssuesPage} />
       <Route path="/issues/:hospitalId" component={IssuesPage} />
