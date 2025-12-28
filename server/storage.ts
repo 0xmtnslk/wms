@@ -230,6 +230,64 @@ export class DatabaseStorage implements IStorage {
       .sort((a, b) => b.period.localeCompare(a.period));
   }
 
+  async getLatestOperationalCoefficients(hospitalId: string): Promise<Map<string, { value: number; period: string }>> {
+    const allCoeffs = await db.select().from(operationalCoefficients)
+      .where(eq(operationalCoefficients.hospitalId, hospitalId));
+    
+    const latestByCategory = new Map<string, { value: number; period: string }>();
+    
+    allCoeffs.forEach(c => {
+      const existing = latestByCategory.get(c.categoryId);
+      if (!existing || c.period > existing.period) {
+        latestByCategory.set(c.categoryId, {
+          value: parseFloat(c.value) || 0,
+          period: c.period
+        });
+      }
+    });
+    
+    return latestByCategory;
+  }
+
+  async computeExpectedWaste(hospitalId: string): Promise<{
+    byCategory: Array<{
+      categoryId: string;
+      categoryName: string;
+      categoryCode: string;
+      operationalValue: number;
+      referenceWasteFactor: number;
+      expectedWeight: number;
+      unit: string;
+      period: string | null;
+    }>;
+    totalExpectedWeight: number;
+  }> {
+    const categories = await this.getLocationCategories();
+    const latestCoeffs = await this.getLatestOperationalCoefficients(hospitalId);
+    
+    const byCategory = categories.map(cat => {
+      const coeff = latestCoeffs.get(cat.id);
+      const operationalValue = coeff?.value || 0;
+      const referenceWasteFactor = parseFloat(cat.referenceWasteFactor || '0') || 0;
+      const expectedWeight = operationalValue * referenceWasteFactor;
+      
+      return {
+        categoryId: cat.id,
+        categoryName: cat.name,
+        categoryCode: cat.code,
+        operationalValue,
+        referenceWasteFactor,
+        expectedWeight,
+        unit: cat.unit,
+        period: coeff?.period || null
+      };
+    });
+    
+    const totalExpectedWeight = byCategory.reduce((sum, c) => sum + c.expectedWeight, 0);
+    
+    return { byCategory, totalExpectedWeight };
+  }
+
   async upsertOperationalCoefficient(coeff: InsertOperationalCoefficient): Promise<OperationalCoefficient> {
     const existing = await db.select().from(operationalCoefficients).where(
       and(
@@ -595,6 +653,44 @@ export class DatabaseStorage implements IStorage {
       });
     }
 
+    let expectedWasteMetrics = null;
+    if (hospitalId) {
+      const expectedWaste = await this.computeExpectedWaste(hospitalId);
+      const allLocs = await this.getLocations(hospitalId);
+      
+      const actualByCategory = categories.map(cat => {
+        const catLocations = allLocs.filter(l => l.categoryId === cat.id);
+        const catLocationIds = catLocations.map(l => l.id);
+        const catWeight = collections
+          .filter(c => c.locationId && catLocationIds.includes(c.locationId))
+          .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
+        return { categoryId: cat.id, actualWeight: catWeight };
+      });
+      
+      expectedWasteMetrics = {
+        byCategory: expectedWaste.byCategory.map(ec => {
+          const actual = actualByCategory.find(a => a.categoryId === ec.categoryId);
+          const actualWeight = actual?.actualWeight || 0;
+          const variance = actualWeight - ec.expectedWeight;
+          const variancePercent = ec.expectedWeight > 0 ? (variance / ec.expectedWeight) * 100 : 0;
+          
+          return {
+            ...ec,
+            actualWeight,
+            variance,
+            variancePercent,
+            status: Math.abs(variancePercent) <= 10 ? 'normal' : variancePercent > 10 ? 'high' : 'low'
+          };
+        }),
+        totalExpectedWeight: expectedWaste.totalExpectedWeight,
+        totalActualWeight: totalWeight,
+        totalVariance: totalWeight - expectedWaste.totalExpectedWeight,
+        totalVariancePercent: expectedWaste.totalExpectedWeight > 0 
+          ? ((totalWeight - expectedWaste.totalExpectedWeight) / expectedWaste.totalExpectedWeight) * 100 
+          : 0
+      };
+    }
+
     return {
       kpis,
       categoryRanking,
@@ -607,7 +703,8 @@ export class DatabaseStorage implements IStorage {
       timeAnalysis,
       shiftAnalysis,
       avgCollectionTime,
-      hospitalTimeStats
+      hospitalTimeStats,
+      expectedWasteMetrics
     };
   }
 

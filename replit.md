@@ -27,6 +27,32 @@ Bu sistem, hastane atıklarının toplanması, tartılması ve analizini yönetm
 | Evsel Atık | Slate (#64748b) | 2.00 TL/kg |
 | Geri Dönüşüm | Cyan (#06b6d4) | -1.00 TL/kg (kazanç) |
 
+## HBYS Verileri ve Beklenen Atık Hesaplama
+
+HBYS (Hastane Bilgi Yönetim Sistemi) verileri, operasyonel aktivite seviyelerini temsil eder:
+- **Yoğun Bakım**: Yatış Gün sayısı
+- **Hasta Servisi**: Yatış Gün sayısı
+- **Ameliyathane**: Ameliyat sayısı
+- **Poliklinik**: Protokol sayısı
+- **İdari Ofis**: Sabit değer
+- **Diğer**: Sabit değer
+
+### Beklenen Atık Formülü
+```
+Beklenen Atık (kg) = HBYS Değeri × Referans Atık Faktörü
+```
+
+Örnek: 5000 yoğun bakım yatış günü × 2.50 kg/gün = 12,500 kg beklenen atık
+
+### Varyans Hesaplama
+- **Gerçekleşen** vs **Beklenen** atık karşılaştırması
+- ±%10 tolerans: Normal
+- >%10: Yüksek (potansiyel sorun)
+- <-10%: Düşük (eksik toplama olabilir)
+
+### Entegrasyon
+Gelecekte "Pusula" HBYS sistemine entegre edilecek. Şimdilik günlük manuel veri girişi yapılıyor.
+
 ## Teknoloji Stack
 
 - **Frontend**: React + TypeScript + Vite + TailwindCSS + Shadcn/UI
