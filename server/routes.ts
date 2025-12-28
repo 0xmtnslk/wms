@@ -337,14 +337,14 @@ export async function registerRoutes(
 
   app.get("/api/settings/waste-type-costs", requireAuth, async (req, res) => {
     try {
-      const period = req.query.period as string | undefined;
-      const costs = await storage.getWasteTypeCosts(period);
+      const costs = await storage.getWasteTypeCosts();
       const wasteTypes = await storage.getWasteTypes();
       
       const enriched = costs.map(c => ({
         ...c,
         wasteTypeName: wasteTypes.find(wt => wt.id === c.wasteTypeId)?.name,
-        wasteTypeCode: wasteTypes.find(wt => wt.id === c.wasteTypeId)?.code
+        wasteTypeCode: wasteTypes.find(wt => wt.id === c.wasteTypeId)?.code,
+        wasteTypeColor: wasteTypes.find(wt => wt.id === c.wasteTypeId)?.colorHex
       }));
       
       res.json(enriched);
@@ -362,10 +362,10 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Sadece HQ kullanıcıları maliyet değerlerini düzenleyebilir" });
       }
 
-      const { period, costs } = req.body;
+      const { effectiveFrom, costs } = req.body;
       
-      if (!period || !costs || !Array.isArray(costs)) {
-        return res.status(400).json({ error: "period ve costs array gerekli" });
+      if (!effectiveFrom || !costs || !Array.isArray(costs)) {
+        return res.status(400).json({ error: "effectiveFrom ve costs array gerekli" });
       }
 
       for (const c of costs) {
@@ -374,11 +374,7 @@ export async function registerRoutes(
           return res.status(400).json({ error: `Geçersiz maliyet değeri: ${c.costPerKg}` });
         }
         
-        await storage.upsertWasteTypeCost({
-          wasteTypeId: c.wasteTypeId,
-          period,
-          costPerKg: numValue.toFixed(2)
-        });
+        await storage.upsertWasteTypeCost(c.wasteTypeId, effectiveFrom, numValue.toFixed(2));
       }
       
       res.json({ success: true });
