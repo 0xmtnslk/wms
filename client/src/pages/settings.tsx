@@ -6,7 +6,7 @@ import { tr } from "date-fns/locale";
 import { 
   Settings2, MapPin, Database, Save, Plus, Edit3, 
   Trash2, Loader2, Building2, CheckCircle2, QrCode,
-  Printer, X, Eye, DollarSign, ChevronDown, ChevronRight
+  Printer, X, Eye, DollarSign, ChevronDown, ChevronRight, CalendarIcon
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth, useCurrentHospital, useIsHQ } from "@/lib/auth-context";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -919,7 +921,7 @@ function CategoryReferenceForm({
   );
 }
 
-interface PeriodRecord {
+interface HBYSRecord {
   period: string;
   categoryCount: number;
   createdAt: string | null;
@@ -933,15 +935,15 @@ function HBYSDataSection({
   hospitalId: string;
 }) {
   const { toast } = useToast();
-  const [selectedPeriod, setSelectedPeriod] = useState(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [selectedHour, setSelectedHour] = useState("12");
+  const [selectedMinute, setSelectedMinute] = useState("00");
   const [values, setValues] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
-  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+  const [expandedRecord, setExpandedRecord] = useState<string | null>(null);
+  const [isDateOpen, setIsDateOpen] = useState(false);
 
-  const { data: periods, refetch: refetchPeriods } = useQuery<PeriodRecord[]>({
+  const { data: records, refetch: refetchRecords } = useQuery<HBYSRecord[]>({
     queryKey: ["/api/settings/operational-coefficients", hospitalId, "periods"],
     queryFn: async () => {
       const res = await fetch(`/api/settings/operational-coefficients/${hospitalId}/periods`, {
@@ -953,18 +955,24 @@ function HBYSDataSection({
     enabled: !!hospitalId
   });
 
-  const { data: periodCoefficients, isLoading: isLoadingCoefficients } = useQuery<OperationalCoefficient[]>({
-    queryKey: ["/api/settings/operational-coefficients", hospitalId, "period", expandedPeriod],
+  const { data: recordDetails, isLoading: isLoadingDetails } = useQuery<OperationalCoefficient[]>({
+    queryKey: ["/api/settings/operational-coefficients", hospitalId, "record", expandedRecord],
     queryFn: async () => {
-      if (!expandedPeriod) return [];
-      const res = await fetch(`/api/settings/operational-coefficients/${hospitalId}?period=${expandedPeriod}`, {
+      if (!expandedRecord) return [];
+      const res = await fetch(`/api/settings/operational-coefficients/${hospitalId}?period=${encodeURIComponent(expandedRecord)}`, {
         credentials: 'include'
       });
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
-    enabled: !!hospitalId && !!expandedPeriod
+    enabled: !!hospitalId && !!expandedRecord
   });
+
+  const getTimestamp = () => {
+    const d = new Date(selectedDate);
+    d.setHours(parseInt(selectedHour), parseInt(selectedMinute), 0, 0);
+    return d.toISOString();
+  };
 
   const handleSave = async () => {
     const valuesToSave = Object.entries(values).filter(([, v]) => v !== "");
@@ -981,17 +989,17 @@ function HBYSDataSection({
     try {
       await apiRequest("POST", "/api/settings/operational-coefficients", {
         hospitalId,
-        period: selectedPeriod,
+        period: getTimestamp(),
         values: Object.entries(values).map(([categoryId, value]) => ({
           categoryId,
           value: parseFloat(value) || 0
         }))
       });
-      await refetchPeriods();
+      await refetchRecords();
       setValues({});
       toast({
         title: "Kaydedildi",
-        description: `${formatPeriod(selectedPeriod)} dönemi için veriler kaydedildi`,
+        description: "HBYS verileri başarıyla kaydedildi",
       });
     } catch (error) {
       toast({
@@ -1004,25 +1012,18 @@ function HBYSDataSection({
     }
   };
 
-  const formatPeriod = (period: string) => {
-    const [year, month] = period.split('-');
-    const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 
-                    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
-    return `${months[parseInt(month) - 1]} ${year}`;
-  };
-
-  const generateMonthOptions = () => {
-    const options: { value: string; label: string }[] = [];
-    const now = new Date();
-    for (let i = 0; i < 24; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      options.push({ value, label: formatPeriod(value) });
+  const formatRecordDate = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return timestamp;
+      return format(date, "dd MMMM yyyy HH:mm", { locale: tr });
+    } catch {
+      return timestamp;
     }
-    return options;
   };
 
-  const monthOptions = generateMonthOptions();
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+  const minutes = ['00', '15', '30', '45'];
 
   return (
     <div className="space-y-6">
@@ -1031,23 +1032,55 @@ function HBYSDataSection({
           <div className="flex items-center justify-between gap-4">
             <div>
               <CardTitle className="text-sm font-medium">Yeni HBYS Verisi Girişi</CardTitle>
-              <CardDescription>Dönem seçin ve operasyonel verileri girin</CardDescription>
+              <CardDescription>Tarih ve saat seçin, HBYS verilerini girin</CardDescription>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            <Label className="w-24">Dönem:</Label>
-            <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-              <SelectTrigger className="w-48" data-testid="select-period">
-                <SelectValue placeholder="Dönem seçin" />
-              </SelectTrigger>
-              <SelectContent>
-                {monthOptions.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Label>Tarih:</Label>
+              <Popover open={isDateOpen} onOpenChange={setIsDateOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-44 justify-start text-left font-normal" data-testid="button-date-picker">
+                    <CalendarIcon className="mr-2 h-4 w-4" />
+                    {format(selectedDate, "dd.MM.yyyy", { locale: tr })}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <Calendar
+                    mode="single"
+                    selected={selectedDate}
+                    onSelect={(date) => { if (date) { setSelectedDate(date); setIsDateOpen(false); } }}
+                    locale={tr}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label>Saat:</Label>
+              <Select value={selectedHour} onValueChange={setSelectedHour}>
+                <SelectTrigger className="w-20" data-testid="select-hour">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {hours.map((h) => (
+                    <SelectItem key={h} value={h}>{h}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span>:</span>
+              <Select value={selectedMinute} onValueChange={setSelectedMinute}>
+                <SelectTrigger className="w-20" data-testid="select-minute">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {minutes.map((m) => (
+                    <SelectItem key={m} value={m}>{m}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="border-t pt-4 space-y-3">
@@ -1088,39 +1121,35 @@ function HBYSDataSection({
           <CardDescription>Daha önce girilen HBYS verileri</CardDescription>
         </CardHeader>
         <CardContent>
-          {periods && periods.length > 0 ? (
+          {records && records.length > 0 ? (
             <div className="space-y-2">
-              {periods.map((record) => (
+              {records.map((record) => (
                 <div key={record.period} className="border rounded-md overflow-hidden">
                   <div 
                     className="flex items-center justify-between gap-4 p-3 bg-muted/30 cursor-pointer hover-elevate"
-                    onClick={() => setExpandedPeriod(expandedPeriod === record.period ? null : record.period)}
-                    data-testid={`period-row-${record.period}`}
+                    onClick={() => setExpandedRecord(expandedRecord === record.period ? null : record.period)}
+                    data-testid={`record-row-${record.period}`}
                   >
                     <div className="flex items-center gap-3">
-                      {expandedPeriod === record.period ? (
+                      {expandedRecord === record.period ? (
                         <ChevronDown className="h-4 w-4" />
                       ) : (
                         <ChevronRight className="h-4 w-4" />
                       )}
-                      <span className="font-medium">{formatPeriod(record.period)}</span>
+                      <CalendarIcon className="h-4 w-4 text-muted-foreground" />
+                      <span className="font-medium">{formatRecordDate(record.period)}</span>
                       <Badge variant="outline" className="text-xs">{record.categoryCount} kategori</Badge>
                     </div>
-                    {record.createdAt && (
-                      <span className="text-xs text-muted-foreground">
-                        {format(new Date(record.createdAt), "dd MMM yyyy HH:mm", { locale: tr })}
-                      </span>
-                    )}
                   </div>
-                  {expandedPeriod === record.period && (
+                  {expandedRecord === record.period && (
                     <div className="p-3 space-y-2 bg-background">
-                      {isLoadingCoefficients ? (
+                      {isLoadingDetails ? (
                         <div className="flex items-center justify-center py-4">
                           <Loader2 className="h-4 w-4 animate-spin mr-2" />
                           <span className="text-sm text-muted-foreground">Yükleniyor...</span>
                         </div>
-                      ) : periodCoefficients && periodCoefficients.length > 0 ? (
-                        periodCoefficients.map((coeff) => {
+                      ) : recordDetails && recordDetails.length > 0 ? (
+                        recordDetails.map((coeff) => {
                           const cat = categories.find(c => c.id === coeff.categoryId);
                           return (
                             <div key={coeff.id} className="flex items-center justify-between gap-4 p-2 rounded bg-muted/30">
@@ -1134,7 +1163,7 @@ function HBYSDataSection({
                         })
                       ) : (
                         <div className="text-sm text-muted-foreground text-center py-2">
-                          Bu dönem için veri bulunamadı
+                          Bu kayıt için veri bulunamadı
                         </div>
                       )}
                     </div>
