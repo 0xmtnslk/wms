@@ -205,6 +205,31 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(operationalCoefficients).where(eq(operationalCoefficients.hospitalId, hospitalId));
   }
 
+  async getOperationalCoefficientPeriods(hospitalId: string): Promise<{ period: string; categoryCount: number; createdAt: Date | null }[]> {
+    const allCoeffs = await db.select().from(operationalCoefficients)
+      .where(eq(operationalCoefficients.hospitalId, hospitalId));
+    
+    const periodMap = new Map<string, { count: number; createdAt: Date | null }>();
+    allCoeffs.forEach(c => {
+      if (!periodMap.has(c.period)) {
+        periodMap.set(c.period, { count: 0, createdAt: c.createdAt });
+      }
+      const entry = periodMap.get(c.period)!;
+      entry.count++;
+      if (c.createdAt && (!entry.createdAt || c.createdAt > entry.createdAt)) {
+        entry.createdAt = c.createdAt;
+      }
+    });
+
+    return Array.from(periodMap.entries())
+      .map(([period, data]) => ({
+        period,
+        categoryCount: data.count,
+        createdAt: data.createdAt
+      }))
+      .sort((a, b) => b.period.localeCompare(a.period));
+  }
+
   async upsertOperationalCoefficient(coeff: InsertOperationalCoefficient): Promise<OperationalCoefficient> {
     const existing = await db.select().from(operationalCoefficients).where(
       and(

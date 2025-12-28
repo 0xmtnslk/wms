@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
+import { format } from "date-fns";
+import { tr } from "date-fns/locale";
 import { 
   Settings2, MapPin, Database, Save, Plus, Edit3, 
   Trash2, Loader2, Building2, CheckCircle2, QrCode,
@@ -97,16 +99,11 @@ export default function SettingsPage() {
     enabled: !!hospitalId,
   });
 
-  const { data: coefficients, isLoading: coefficientsLoading } = useQuery<OperationalCoefficient[]>({
-    queryKey: ["/api/settings/operational-coefficients", hospitalId],
-    enabled: !!hospitalId,
-  });
-
   const { data: wasteTypeCosts, isLoading: costsLoading } = useQuery<WasteTypeCost[]>({
     queryKey: ["/api/settings/waste-type-costs"],
   });
 
-  const isLoading = categoriesLoading || locationsLoading || coefficientsLoading || costsLoading || activeTab === null;
+  const isLoading = categoriesLoading || locationsLoading || costsLoading || activeTab === null;
 
   const locationsByCategory = useMemo(() => {
     if (!locations || !categories) return new Map<string, Location[]>();
@@ -306,35 +303,10 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="coefficients" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <CardTitle className="text-sm font-medium">Operasyonel Katsayılar</CardTitle>
-                  <CardDescription>HBYS'den alınan aylık istatistikler</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select defaultValue="2025-01">
-                    <SelectTrigger className="w-32">
-                      <SelectValue placeholder="Dönem" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="2025-01">Ocak 2025</SelectItem>
-                      <SelectItem value="2024-12">Aralık 2024</SelectItem>
-                      <SelectItem value="2024-11">Kasım 2024</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <CoefficientForm 
-                categories={categories || []} 
-                coefficients={coefficients || []}
-                hospitalId={hospitalId || ""}
-              />
-            </CardContent>
-          </Card>
+          <HBYSDataSection 
+            categories={categories || []} 
+            hospitalId={hospitalId || ""}
+          />
         </TabsContent>
 
         <TabsContent value="categories" className="space-y-6 mt-6">
@@ -947,40 +919,79 @@ function CategoryReferenceForm({
   );
 }
 
-function CoefficientForm({ 
+interface PeriodRecord {
+  period: string;
+  categoryCount: number;
+  createdAt: string | null;
+}
+
+function HBYSDataSection({ 
   categories, 
-  coefficients,
   hospitalId 
 }: { 
   categories: LocationCategory[];
-  coefficients: OperationalCoefficient[];
   hospitalId: string;
 }) {
   const { toast } = useToast();
-  const [values, setValues] = useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    coefficients.forEach(c => {
-      initial[c.categoryId] = c.value;
-    });
-    return initial;
+  const [selectedPeriod, setSelectedPeriod] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   });
+  const [values, setValues] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+
+  const { data: periods, refetch: refetchPeriods } = useQuery<PeriodRecord[]>({
+    queryKey: ["/api/settings/operational-coefficients", hospitalId, "periods"],
+    queryFn: async () => {
+      const res = await fetch(`/api/settings/operational-coefficients/${hospitalId}/periods`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!hospitalId
+  });
+
+  const { data: periodCoefficients, isLoading: isLoadingCoefficients } = useQuery<OperationalCoefficient[]>({
+    queryKey: ["/api/settings/operational-coefficients", hospitalId, "period", expandedPeriod],
+    queryFn: async () => {
+      if (!expandedPeriod) return [];
+      const res = await fetch(`/api/settings/operational-coefficients/${hospitalId}?period=${expandedPeriod}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!hospitalId && !!expandedPeriod
+  });
 
   const handleSave = async () => {
+    const valuesToSave = Object.entries(values).filter(([, v]) => v !== "");
+    if (valuesToSave.length === 0) {
+      toast({
+        title: "Uyarı",
+        description: "Lütfen en az bir değer girin",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setIsSaving(true);
     try {
       await apiRequest("POST", "/api/settings/operational-coefficients", {
         hospitalId,
-        period: "2025-01",
+        period: selectedPeriod,
         values: Object.entries(values).map(([categoryId, value]) => ({
           categoryId,
           value: parseFloat(value) || 0
         }))
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings/operational-coefficients"] });
+      await refetchPeriods();
+      setValues({});
       toast({
         title: "Kaydedildi",
-        description: "Operasyonel katsayılar güncellendi",
+        description: `${formatPeriod(selectedPeriod)} dönemi için veriler kaydedildi`,
       });
     } catch (error) {
       toast({
@@ -993,34 +1004,153 @@ function CoefficientForm({
     }
   };
 
+  const formatPeriod = (period: string) => {
+    const [year, month] = period.split('-');
+    const months = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 
+                    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+    return `${months[parseInt(month) - 1]} ${year}`;
+  };
+
+  const generateMonthOptions = () => {
+    const options: { value: string; label: string }[] = [];
+    const now = new Date();
+    for (let i = 0; i < 24; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      options.push({ value, label: formatPeriod(value) });
+    }
+    return options;
+  };
+
+  const monthOptions = generateMonthOptions();
+
   return (
-    <div className="space-y-4">
-      {categories.map((category) => (
-        <div key={category.id} className="flex items-center gap-4">
-          <div className="flex-1 min-w-0">
-            <Label className="text-sm">{category.name}</Label>
-            <p className="text-xs text-muted-foreground">{category.unit}</p>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="text-sm font-medium">Yeni HBYS Verisi Girişi</CardTitle>
+              <CardDescription>Dönem seçin ve operasyonel verileri girin</CardDescription>
+            </div>
           </div>
-          <Input
-            type="number"
-            className="w-32 text-right font-mono"
-            value={values[category.id] || ""}
-            onChange={(e) => setValues(prev => ({ ...prev, [category.id]: e.target.value }))}
-            placeholder="0"
-            data-testid={`input-coefficient-${category.code}`}
-          />
-        </div>
-      ))}
-      <div className="flex justify-end pt-4 border-t">
-        <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-coefficients">
-          {isSaving ? (
-            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <Label className="w-24">Dönem:</Label>
+            <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+              <SelectTrigger className="w-48" data-testid="select-period">
+                <SelectValue placeholder="Dönem seçin" />
+              </SelectTrigger>
+              <SelectContent>
+                {monthOptions.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="border-t pt-4 space-y-3">
+            {categories.map((category) => (
+              <div key={category.id} className="flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <Label className="text-sm">{category.name}</Label>
+                  <p className="text-xs text-muted-foreground">{category.unit}</p>
+                </div>
+                <Input
+                  type="number"
+                  className="w-32 text-right font-mono"
+                  value={values[category.id] || ""}
+                  onChange={(e) => setValues(prev => ({ ...prev, [category.id]: e.target.value }))}
+                  placeholder="0"
+                  data-testid={`input-coefficient-${category.code}`}
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end pt-4 border-t">
+            <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-coefficients">
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Kaydet
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium">Geçmiş Kayıtlar</CardTitle>
+          <CardDescription>Daha önce girilen HBYS verileri</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {periods && periods.length > 0 ? (
+            <div className="space-y-2">
+              {periods.map((record) => (
+                <div key={record.period} className="border rounded-md overflow-hidden">
+                  <div 
+                    className="flex items-center justify-between gap-4 p-3 bg-muted/30 cursor-pointer hover-elevate"
+                    onClick={() => setExpandedPeriod(expandedPeriod === record.period ? null : record.period)}
+                    data-testid={`period-row-${record.period}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {expandedPeriod === record.period ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                      <span className="font-medium">{formatPeriod(record.period)}</span>
+                      <Badge variant="outline" className="text-xs">{record.categoryCount} kategori</Badge>
+                    </div>
+                    {record.createdAt && (
+                      <span className="text-xs text-muted-foreground">
+                        {format(new Date(record.createdAt), "dd MMM yyyy HH:mm", { locale: tr })}
+                      </span>
+                    )}
+                  </div>
+                  {expandedPeriod === record.period && (
+                    <div className="p-3 space-y-2 bg-background">
+                      {isLoadingCoefficients ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                          <span className="text-sm text-muted-foreground">Yükleniyor...</span>
+                        </div>
+                      ) : periodCoefficients && periodCoefficients.length > 0 ? (
+                        periodCoefficients.map((coeff) => {
+                          const cat = categories.find(c => c.id === coeff.categoryId);
+                          return (
+                            <div key={coeff.id} className="flex items-center justify-between gap-4 p-2 rounded bg-muted/30">
+                              <div>
+                                <span className="text-sm">{cat?.name || 'Bilinmeyen'}</span>
+                                <span className="text-xs text-muted-foreground ml-2">({cat?.unit})</span>
+                              </div>
+                              <span className="font-mono font-medium">{coeff.value}</span>
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="text-sm text-muted-foreground text-center py-2">
+                          Bu dönem için veri bulunamadı
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           ) : (
-            <Save className="h-4 w-4 mr-2" />
+            <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+              <Database className="h-8 w-8 mb-2 opacity-50" />
+              <p className="text-sm">Henüz kayıt bulunmuyor</p>
+              <p className="text-xs mt-1">Yukarıdan dönem seçerek veri girişi yapabilirsiniz</p>
+            </div>
           )}
-          Kaydet
-        </Button>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

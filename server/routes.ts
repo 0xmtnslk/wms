@@ -348,6 +348,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/settings/operational-coefficients/:hospitalId/periods", requireAuth, async (req, res) => {
+    try {
+      const hospitalId = req.params.hospitalId;
+      const periods = await storage.getOperationalCoefficientPeriods(hospitalId);
+      res.json(periods);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.post("/api/settings/operational-coefficients", requireAuth, async (req, res) => {
     try {
       const { hospitalId, period, values } = req.body;
