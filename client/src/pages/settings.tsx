@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { QRCodeSVG } from "qrcode.react";
 import { 
@@ -61,11 +61,17 @@ export default function SettingsPage() {
   const currentHospital = useCurrentHospital();
   const isHQ = useIsHQ();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState(() => isHQ ? "categories" : "locations");
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showQRDialog, setShowQRDialog] = useState(false);
   const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+
+  useEffect(() => {
+    if (activeTab === null) {
+      setActiveTab(isHQ ? "categories" : "locations");
+    }
+  }, [isHQ, activeTab]);
 
   const hospitalId = currentHospital?.id;
 
@@ -87,7 +93,7 @@ export default function SettingsPage() {
     queryKey: ["/api/settings/waste-type-costs"],
   });
 
-  const isLoading = categoriesLoading || locationsLoading || coefficientsLoading || costsLoading;
+  const isLoading = categoriesLoading || locationsLoading || coefficientsLoading || costsLoading || activeTab === null;
 
   const handleShowQR = (location: Location) => {
     setSelectedLocation(location);
@@ -109,7 +115,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab || ""} onValueChange={setActiveTab}>
         <TabsList className={`grid w-full h-auto ${isHQ ? 'grid-cols-2' : 'grid-cols-2'}`}>
           {isHQ ? (
             <>
