@@ -329,8 +329,16 @@ export default function DashboardPage() {
                         {item.tagCode}
                       </code>
                       <WasteTypeBadge code={item.wasteTypeCode} size="sm" />
+                      {!isHQ && item.hospitalName && (
+                        <span className="text-xs text-muted-foreground hidden sm:inline">{item.hospitalName}</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3">
+                      {item.collectedAt && (
+                        <span className="text-xs text-muted-foreground hidden md:inline">
+                          {format(new Date(item.collectedAt), "dd MMM HH:mm", { locale: tr })}
+                        </span>
+                      )}
                       {item.weightKg !== null && (
                         <span className="text-sm font-mono font-medium">
                           {Number(item.weightKg).toFixed(2)} kg
