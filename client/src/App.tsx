@@ -26,6 +26,7 @@ function AuthenticatedRouter() {
       <Route path="/analytics/:hospitalId" component={AnalyticsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/issues" component={IssuesPage} />
+      <Route path="/issues/:hospitalId" component={IssuesPage} />
       <Route path="/collector" component={CollectorPage} />
       <Route component={NotFound} />
     </Switch>

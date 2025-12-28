@@ -483,6 +483,44 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/issues/summary", requireAuth, async (req, res) => {
+    try {
+      const allIssues = await storage.getIssues();
+      const allHospitals = await storage.getHospitals();
+      
+      const hospitalsSummary = allHospitals.map(h => {
+        const hospitalIssues = allIssues.filter(i => i.hospitalId === h.id);
+        const openCount = hospitalIssues.filter(i => !i.isResolved).length;
+        const resolvedCount = hospitalIssues.filter(i => i.isResolved).length;
+        const lastIssue = hospitalIssues
+          .filter(i => i.reportedAt)
+          .sort((a, b) => new Date(b.reportedAt!).getTime() - new Date(a.reportedAt!).getTime())[0];
+        
+        return {
+          id: h.id,
+          code: h.code,
+          name: h.name,
+          colorHex: h.colorHex,
+          openCount,
+          resolvedCount,
+          totalCount: hospitalIssues.length,
+          lastIssueAt: lastIssue?.reportedAt?.toISOString() || null
+        };
+      });
+      
+      const totalOpen = allIssues.filter(i => !i.isResolved).length;
+      const totalResolved = allIssues.filter(i => i.isResolved).length;
+      
+      res.json({
+        totalOpen,
+        totalResolved,
+        hospitals: hospitalsSummary
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/issues", requireAuth, async (req, res) => {
     try {
       const hospitalId = req.query.hospitalId as string | undefined;

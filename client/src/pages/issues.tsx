@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useRoute, useLocation } from "wouter";
 import { 
-  AlertTriangle, Filter, Search, Eye, CheckCircle2, 
-  Clock, Camera, MapPin, Building2, Loader2 
+  AlertTriangle, Search, Eye, CheckCircle2, 
+  Clock, Camera, Building2, ChevronRight, ArrowLeft
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -13,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { WasteTypeBadge } from "@/components/waste-type-badge";
 import { useAuth, useCurrentHospital, useIsHQ } from "@/lib/auth-context";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import { format } from "date-fns";
 import { tr } from "date-fns/locale";
 
@@ -30,6 +33,21 @@ interface Issue {
   resolvedAt: string | null;
   wasteTypeCode?: string;
   locationCode?: string;
+}
+
+interface IssuesSummary {
+  totalOpen: number;
+  totalResolved: number;
+  hospitals: {
+    id: string;
+    code: string;
+    name: string;
+    colorHex: string;
+    openCount: number;
+    resolvedCount: number;
+    totalCount: number;
+    lastIssueAt: string | null;
+  }[];
 }
 
 const categoryLabels: Record<string, string> = {
@@ -50,15 +68,48 @@ export default function IssuesPage() {
   const { user } = useAuth();
   const currentHospital = useCurrentHospital();
   const isHQ = useIsHQ();
+  const [, navigate] = useLocation();
+  const [match, params] = useRoute("/issues/:hospitalId");
+  const { toast } = useToast();
+  
   const [selectedIssue, setSelectedIssue] = useState<Issue | null>(null);
   const [filterCategory, setFilterCategory] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
 
-  const hospitalId = isHQ ? undefined : currentHospital?.id;
+  const urlHospitalId = params?.hospitalId;
+  const isViewingSpecificHospital = !!urlHospitalId;
+  const hospitalId = urlHospitalId || (isHQ ? undefined : currentHospital?.id);
 
-  const { data: issues, isLoading } = useQuery<Issue[]>({
-    queryKey: ["/api/issues", hospitalId, filterCategory, filterStatus],
+  const { data: summary, isLoading: summaryLoading } = useQuery<IssuesSummary>({
+    queryKey: ["/api/issues/summary"],
+    enabled: isHQ && !isViewingSpecificHospital,
+  });
+
+  const viewingHospital = summary?.hospitals?.find(h => h.id === urlHospitalId);
+
+  const { data: issues, isLoading: issuesLoading } = useQuery<Issue[]>({
+    queryKey: ["/api/issues", hospitalId],
+    queryFn: async () => {
+      const url = hospitalId ? `/api/issues?hospitalId=${hospitalId}` : "/api/issues";
+      const response = await fetch(url, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch issues");
+      return response.json();
+    },
+    enabled: !isHQ || isViewingSpecificHospital || !isHQ,
+  });
+
+  const resolveMutation = useMutation({
+    mutationFn: (issueId: string) => apiRequest("PATCH", `/api/issues/${issueId}/resolve`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/issues/summary"] });
+      setSelectedIssue(null);
+      toast({ title: "Uygunsuzluk çözüldü olarak işaretlendi" });
+    },
+    onError: () => {
+      toast({ title: "Hata oluştu", variant: "destructive" });
+    }
   });
 
   const filteredIssues = issues?.filter(issue => {
@@ -78,21 +129,144 @@ export default function IssuesPage() {
     return true;
   });
 
-  if (isLoading) {
+  const filteredHospitals = summary?.hospitals?.filter(h => 
+    h.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    h.code.toLowerCase().includes(searchQuery.toLowerCase())
+  ).sort((a, b) => b.openCount - a.openCount) || [];
+
+  if (summaryLoading || issuesLoading) {
     return <IssuesSkeleton />;
+  }
+
+  if (isHQ && !isViewingSpecificHospital) {
+    return (
+      <div className="space-y-6 animate-in fade-in duration-500">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Uygunsuzluk Bildirimleri</h1>
+            <p className="text-muted-foreground text-sm">Tüm hastaneler</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+              {summary?.totalOpen || 0} Açık
+            </Badge>
+            <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+              {summary?.totalResolved || 0} Çözüldü
+            </Badge>
+          </div>
+        </div>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between gap-4 flex-wrap">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Building2 className="h-4 w-4 text-primary" />
+                Hastaneler
+              </CardTitle>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  type="text"
+                  placeholder="Hastane ara..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9 w-48"
+                  data-testid="input-hospital-search"
+                />
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {filteredHospitals.length > 0 ? (
+              <div className="space-y-2">
+                {filteredHospitals.map((hospital) => (
+                  <div 
+                    key={hospital.id}
+                    className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer"
+                    onClick={() => navigate(`/issues/${hospital.id}`)}
+                    data-testid={`hospital-issue-row-${hospital.id}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div 
+                        className="w-2 h-2 rounded-full flex-shrink-0" 
+                        style={{ backgroundColor: hospital.colorHex }}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium truncate">{hospital.name}</span>
+                          <Badge variant="outline" className="text-xs font-mono">
+                            {hospital.code}
+                          </Badge>
+                        </div>
+                        {hospital.lastIssueAt && (
+                          <p className="text-xs text-muted-foreground">
+                            Son bildirim: {format(new Date(hospital.lastIssueAt), "d MMM HH:mm", { locale: tr })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        {hospital.openCount > 0 && (
+                          <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                            {hospital.openCount} açık
+                          </Badge>
+                        )}
+                        {hospital.resolvedCount > 0 && (
+                          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+                            {hospital.resolvedCount} çözüldü
+                          </Badge>
+                        )}
+                        {hospital.totalCount === 0 && (
+                          <span className="text-xs text-muted-foreground">Bildirim yok</span>
+                        )}
+                      </div>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : searchQuery ? (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Search className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">"{searchQuery}" ile eşleşen hastane bulunamadı</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <Building2 className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm">Hastane verisi yok</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   const openCount = issues?.filter(i => !i.isResolved).length || 0;
   const resolvedCount = issues?.filter(i => i.isResolved).length || 0;
+  const displayName = isViewingSpecificHospital 
+    ? (viewingHospital?.name || "Hastane") 
+    : (isHQ ? "Tüm hastaneler" : currentHospital?.name);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Uygunsuzluk Bildirimleri</h1>
-          <p className="text-muted-foreground text-sm">
-            {isHQ ? "Tüm hastaneler" : currentHospital?.name}
-          </p>
+        <div className="flex items-center gap-3">
+          {isViewingSpecificHospital && (
+            <Button 
+              variant="ghost" 
+              size="icon"
+              onClick={() => navigate("/issues")}
+              data-testid="button-back"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          )}
+          <div>
+            <h1 className="text-2xl font-bold">Uygunsuzluk Bildirimleri</h1>
+            <p className="text-muted-foreground text-sm">{displayName}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
@@ -170,7 +344,7 @@ export default function IssuesPage() {
                           {issue.tagCode}
                         </code>
                       )}
-                      {isHQ && (
+                      {!isViewingSpecificHospital && isHQ && (
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           <Building2 className="h-3 w-3" />
                           {issue.hospitalName}
@@ -262,8 +436,16 @@ export default function IssuesPage() {
 
               <div className="flex justify-end gap-2 pt-4 border-t">
                 {!selectedIssue.isResolved && (
-                  <Button data-testid="button-resolve-issue">
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  <Button 
+                    onClick={() => resolveMutation.mutate(selectedIssue.id)}
+                    disabled={resolveMutation.isPending}
+                    data-testid="button-resolve-issue"
+                  >
+                    {resolveMutation.isPending ? (
+                      <Clock className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="h-4 w-4 mr-2" />
+                    )}
                     Çözüldü İşaretle
                   </Button>
                 )}
