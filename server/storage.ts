@@ -696,8 +696,9 @@ export class DatabaseStorage implements IStorage {
     const allLocations = await db.select().from(locations);
     let allCollections = await db.select().from(wasteCollections);
 
-    if (hospitalFilter !== "all") {
-      allCollections = allCollections.filter(c => c.hospitalId === hospitalFilter);
+    const hospitalIds = hospitalFilter !== "all" ? hospitalFilter.split(',').filter(Boolean) : [];
+    if (hospitalIds.length > 0) {
+      allCollections = allCollections.filter(c => hospitalIds.includes(c.hospitalId));
     }
 
     if (categoryFilter !== "all") {
@@ -706,8 +707,8 @@ export class DatabaseStorage implements IStorage {
       allCollections = allCollections.filter(c => c.locationId && locationIds.includes(c.locationId));
     }
 
-    const hospitalsToShow = hospitalFilter !== "all" 
-      ? allHospitals.filter(h => h.id === hospitalFilter)
+    const hospitalsToShow = hospitalIds.length > 0
+      ? allHospitals.filter(h => hospitalIds.includes(h.id))
       : allHospitals;
 
     const comparisonData = hospitalsToShow.map(hospital => {

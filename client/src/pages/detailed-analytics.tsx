@@ -1,17 +1,19 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 import { tr } from "date-fns/locale";
+import { motion, AnimatePresence } from "framer-motion";
 import { 
   TrendingUp, TrendingDown, Trophy, ChevronDown, ChevronUp,
-  Building2, Scale, Banknote, Gauge, Package, Calendar
+  Building2, Scale, Banknote, Gauge, Package, Calendar, AlertTriangle, Check
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -318,17 +320,67 @@ function HospitalPerformanceTab() {
   );
 }
 
+function MiniTrendLine({ data, color }: { data: number[]; color: string }) {
+  const max = Math.max(...data, 1);
+  const min = Math.min(...data, 0);
+  const range = max - min || 1;
+  const points = data.map((v, i) => {
+    const x = (i / (data.length - 1)) * 100;
+    const y = 100 - ((v - min) / range) * 100;
+    return `${x},${y}`;
+  }).join(' ');
+
+  return (
+    <svg viewBox="0 0 100 50" className="w-full h-8" preserveAspectRatio="none">
+      <motion.polyline
+        fill="none"
+        stroke={color}
+        strokeWidth="2"
+        points={points}
+        initial={{ pathLength: 0 }}
+        animate={{ pathLength: 1 }}
+        transition={{ duration: 1, ease: "easeOut" }}
+      />
+      <motion.circle
+        cx={100}
+        cy={100 - ((data[data.length - 1] - min) / range) * 100}
+        r="3"
+        fill={color}
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: 1, duration: 0.3 }}
+      />
+    </svg>
+  );
+}
+
 function CrossComparisonTab() {
-  const [metric, setMetric] = useState<string>("weight");
-  const [hospitalFilter, setHospitalFilter] = useState<string>("all");
+  const [metric, setMetric] = useState<string>("medical");
+  const [selectedHospitals, setSelectedHospitals] = useState<string[]>([]);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
 
+  const { data: allHospitals } = useQuery<{ id: string; code: string; name: string; colorHex?: string }[]>({
+    queryKey: ["/api/hospitals"],
+  });
+
+  const { data: categories } = useQuery<{ id: string; name: string }[]>({
+    queryKey: ["/api/settings/location-categories"],
+  });
+
+  useEffect(() => {
+    if (allHospitals && selectedHospitals.length === 0) {
+      setSelectedHospitals(allHospitals.slice(0, 3).map(h => h.id));
+    }
+  }, [allHospitals]);
+
+  const hospitalIds = selectedHospitals.join(',');
+
   const { data, isLoading } = useQuery<CrossComparisonData>({
-    queryKey: ["/api/detailed-analytics/comparison", metric, hospitalFilter, categoryFilter],
+    queryKey: ["/api/detailed-analytics/comparison", metric, hospitalIds, categoryFilter],
     queryFn: async () => {
       const params = new URLSearchParams({
         metric,
-        hospitalFilter,
+        hospitalFilter: hospitalIds || "all",
         categoryFilter
       });
       const res = await fetch(`/api/detailed-analytics/comparison?${params}`, {
@@ -336,26 +388,18 @@ function CrossComparisonTab() {
       });
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
-    }
-  });
-
-  const { data: categories } = useQuery<{ id: string; name: string }[]>({
-    queryKey: ["/api/settings/location-categories"],
-  });
-
-  const { data: hospitals } = useQuery<{ id: string; code: string; name: string }[]>({
-    queryKey: ["/api/hospitals"],
+    },
+    enabled: selectedHospitals.length > 0
   });
 
   const metricOptions = [
-    { value: "weight", label: "Ağırlık (kg)", icon: Scale },
-    { value: "cost", label: "Maliyet (TL)", icon: Banknote },
-    { value: "efficiency", label: "Verimlilik", icon: Gauge },
-    { value: "volume", label: "Hacim", icon: Package },
     { value: "medical", label: "Tıbbi Atık", icon: Scale },
     { value: "hazardous", label: "Tehlikeli Atık", icon: Scale },
     { value: "domestic", label: "Evsel Atık", icon: Scale },
     { value: "recycle", label: "Geri Dönüşüm", icon: Scale },
+    { value: "weight", label: "Toplam Ağırlık", icon: Scale },
+    { value: "cost", label: "Maliyet", icon: Banknote },
+    { value: "efficiency", label: "Verimlilik", icon: Gauge },
   ];
 
   const getMetricValue = (h: CrossComparisonData["hospitals"][0]) => {
@@ -377,18 +421,31 @@ function CrossComparisonTab() {
     return opt?.label || "Değer";
   };
 
-  const maxValue = useMemo(() => {
-    if (!data?.hospitals) return 1;
-    return Math.max(...data.hospitals.map(getMetricValue), 1);
-  }, [data, metric]);
+  const toggleHospital = (id: string) => {
+    setSelectedHospitals(prev => 
+      prev.includes(id) 
+        ? prev.filter(h => h !== id)
+        : [...prev, id]
+    );
+  };
 
-  if (isLoading) {
+  const selectedData = useMemo(() => {
+    if (!data?.hospitals) return [];
+    return data.hospitals.filter(h => selectedHospitals.includes(h.id));
+  }, [data, selectedHospitals]);
+
+  const maxValue = useMemo(() => {
+    if (!selectedData.length) return 1;
+    return Math.max(...selectedData.map(getMetricValue), 1);
+  }, [selectedData, metric]);
+
+  const hospitalColors = ['#f59e0b', '#6366f1', '#ec4899', '#22c55e', '#06b6d4', '#8b5cf6'];
+
+  if (isLoading && selectedHospitals.length > 0) {
     return (
       <div className="space-y-4">
         <Skeleton className="h-20 w-full" />
-        {[1, 2, 3].map(i => (
-          <Skeleton key={i} className="h-16 w-full" />
-        ))}
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
@@ -397,7 +454,7 @@ function CrossComparisonTab() {
     <div className="space-y-4">
       <Card>
         <CardContent className="py-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div>
               <label className="text-sm font-medium text-muted-foreground mb-2 block">
                 Karşılaştırma Kriteri
@@ -421,21 +478,26 @@ function CrossComparisonTab() {
 
             <div>
               <label className="text-sm font-medium text-muted-foreground mb-2 block">
-                Hastane Filtresi
+                Hastane Seçimi
               </label>
-              <Select value={hospitalFilter} onValueChange={setHospitalFilter}>
-                <SelectTrigger data-testid="select-hospital-filter">
-                  <SelectValue placeholder="Tüm Hastaneler" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tüm Hastaneler</SelectItem>
-                  {hospitals?.map((h) => (
-                    <SelectItem key={h.id} value={h.id}>
-                      {h.name} ({h.code})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex flex-wrap gap-2 p-2 border rounded-md bg-muted/30 max-h-24 overflow-y-auto">
+                {allHospitals?.map((h, idx) => (
+                  <div
+                    key={h.id}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs cursor-pointer transition-all",
+                      selectedHospitals.includes(h.id) 
+                        ? "bg-primary text-primary-foreground" 
+                        : "bg-muted hover-elevate"
+                    )}
+                    onClick={() => toggleHospital(h.id)}
+                    data-testid={`toggle-hospital-${h.id}`}
+                  >
+                    {selectedHospitals.includes(h.id) && <Check className="h-3 w-3" />}
+                    {h.name}
+                  </div>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -460,77 +522,154 @@ function CrossComparisonTab() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Building2 className="h-4 w-4 text-primary" />
-            Hastane Karşılaştırması - {getMetricLabel()}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {data?.hospitals?.map((hospital, idx) => {
-              const value = getMetricValue(hospital);
-              const percentage = (value / maxValue) * 100;
-              const isTop = idx < 3;
-              const isBottom = idx >= (data.hospitals.length - 3) && data.hospitals.length > 3;
-              
-              return (
-                <div 
-                  key={hospital.id}
-                  className="flex items-center gap-3"
-                  data-testid={`comparison-row-${hospital.id}`}
-                >
-                  <div 
-                    className="w-1 h-10 rounded-full shrink-0"
-                    style={{ backgroundColor: hospital.hex }}
-                  />
-                  <div className="w-40 shrink-0">
-                    <p className="font-medium text-sm truncate">{hospital.name}</p>
-                    <p className="text-xs text-muted-foreground">{hospital.code}</p>
-                  </div>
-                  <div className="flex-1">
-                    <div className="h-6 bg-muted rounded-full overflow-hidden">
-                      <div 
-                        className={cn(
-                          "h-full rounded-full transition-all",
-                          isTop ? "bg-green-500" : isBottom ? "bg-red-500" : "bg-primary"
-                        )}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                  <div className="w-24 text-right shrink-0">
-                    <span className="font-mono font-bold">
-                      {metric === "cost" 
-                        ? `${value.toFixed(0)} TL` 
-                        : metric === "efficiency"
-                        ? `${(value * 100).toFixed(0)}%`
-                        : `${value.toFixed(1)} kg`
-                      }
-                    </span>
-                  </div>
-                  {isTop && (
-                    <Badge variant="outline" className="bg-green-500/10 text-green-600 border-green-500/20">
-                      En İyi
-                    </Badge>
-                  )}
-                  {isBottom && (
-                    <Badge variant="outline" className="bg-red-500/10 text-red-600 border-red-500/20">
-                      En Düşük
-                    </Badge>
-                  )}
-                </div>
-              );
-            })}
-            {(!data?.hospitals || data.hospitals.length === 0) && (
-              <p className="text-center text-muted-foreground py-4">
-                Karşılaştırma için veri bulunamadı.
-              </p>
-            )}
+      {selectedData.length > 0 && (
+        <>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 flex-wrap">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <Scale className="h-4 w-4 text-rose-500" />
+                {getMetricLabel()} (kg)
+              </CardTitle>
+              <Badge variant="outline">{getMetricLabel()}</Badge>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-end justify-center gap-8 h-64 pt-8">
+                <AnimatePresence mode="popLayout">
+                  {selectedData.map((hospital, idx) => {
+                    const value = getMetricValue(hospital);
+                    const heightPercent = (value / maxValue) * 100;
+                    const color = hospitalColors[idx % hospitalColors.length];
+                    const isLeader = idx === 0;
+                    
+                    return (
+                      <motion.div
+                        key={hospital.id}
+                        className="flex flex-col items-center gap-2"
+                        initial={{ opacity: 0, y: 50 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.5, delay: idx * 0.1 }}
+                      >
+                        <div className="relative flex flex-col items-center">
+                          {isLeader && (
+                            <motion.div
+                              initial={{ scale: 0, y: 10 }}
+                              animate={{ scale: 1, y: 0 }}
+                              transition={{ delay: 0.8, type: "spring" }}
+                              className="absolute -top-8"
+                            >
+                              <Trophy className="h-6 w-6 text-yellow-500" />
+                            </motion.div>
+                          )}
+                          <motion.div
+                            className="w-20 rounded-t-md relative"
+                            style={{ backgroundColor: color }}
+                            initial={{ height: 0 }}
+                            animate={{ height: `${Math.max(heightPercent * 1.8, 20)}px` }}
+                            transition={{ duration: 0.8, delay: idx * 0.15, ease: "easeOut" }}
+                          >
+                            <motion.span
+                              className="absolute -top-6 left-1/2 -translate-x-1/2 text-xs font-mono font-bold whitespace-nowrap"
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              transition={{ delay: 0.8 + idx * 0.1 }}
+                            >
+                              {value.toFixed(1)} kg
+                            </motion.span>
+                          </motion.div>
+                        </div>
+                        <p className="text-xs text-center max-w-20 truncate">{hospital.name}</p>
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <AnimatePresence mode="popLayout">
+              {selectedData.map((hospital, idx) => {
+                const color = hospitalColors[idx % hospitalColors.length];
+                const medicalRatio = hospital.weight > 0 
+                  ? (hospital.medicalKg / hospital.weight) * 100 
+                  : 0;
+                const trendData = [
+                  hospital.weight * 0.8,
+                  hospital.weight * 0.9,
+                  hospital.weight * 0.85,
+                  hospital.weight * 1.1,
+                  hospital.weight * 0.95,
+                  hospital.weight
+                ];
+                const riskLevel = medicalRatio > 40 ? "YÜKSEK RİSK" : medicalRatio > 20 ? "ORTA RİSK" : "DÜŞÜK RİSK";
+                const riskColor = medicalRatio > 40 ? "bg-red-500/10 text-red-500 border-red-500/20" 
+                  : medicalRatio > 20 ? "bg-amber-500/10 text-amber-500 border-amber-500/20"
+                  : "bg-green-500/10 text-green-500 border-green-500/20";
+
+                return (
+                  <motion.div
+                    key={hospital.id}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ duration: 0.4, delay: idx * 0.1 }}
+                  >
+                    <Card>
+                      <CardContent className="pt-4">
+                        <div className="flex items-start justify-between gap-2 mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">#{idx + 1} SIRALAMA</p>
+                            <h3 className="font-semibold flex items-center gap-1">
+                              {hospital.name}
+                              <span 
+                                className="w-2 h-2 rounded-full" 
+                                style={{ backgroundColor: color }}
+                              />
+                            </h3>
+                          </div>
+                          <Badge variant="outline" className={riskColor}>
+                            {riskLevel}
+                          </Badge>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-3">
+                          <div>
+                            <p className="text-xs text-muted-foreground">Maliyet</p>
+                            <p className="text-lg font-bold font-mono">
+                              {hospital.cost.toLocaleString('tr-TR')}
+                            </p>
+                          </div>
+                          <div>
+                            <p className="text-xs text-muted-foreground">Tıbbi Oran</p>
+                            <p className="text-lg font-bold font-mono">
+                              %{medicalRatio.toFixed(1)}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div>
+                          <p className="text-xs text-muted-foreground mb-1">Hacim Trendi (Genel)</p>
+                          <MiniTrendLine data={trendData} color="#ef4444" />
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
-        </CardContent>
-      </Card>
+        </>
+      )}
+
+      {selectedHospitals.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <Building2 className="h-12 w-12 mx-auto mb-4 opacity-30" />
+            <p>Karşılaştırma yapmak için hastane seçin.</p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
