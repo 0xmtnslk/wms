@@ -507,10 +507,37 @@ export class DatabaseStorage implements IStorage {
       .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
 
     const hospitalCount = hospitalId ? 1 : allHospitals.length;
+    
+    // Calculate KPIs using real HBYS data
+    let totalBedDays = 0;
+    let totalSurgeries = 0;
+    let totalProtocols = 0;
+    
+    // Get HBYS values for all relevant hospitals
+    const hospitalIds = hospitalId ? [hospitalId] : allHospitals.map(h => h.id);
+    for (const hId of hospitalIds) {
+      const latestCoeffs = await this.getLatestOperationalCoefficients(hId);
+      for (const cat of categories) {
+        const coeff = latestCoeffs.get(cat.id);
+        if (coeff) {
+          if (cat.code === 'icu' || cat.code === 'ward') {
+            totalBedDays += coeff.value;
+          } else if (cat.code === 'surgery') {
+            totalSurgeries += coeff.value;
+          } else if (cat.code === 'polyclinic') {
+            totalProtocols += coeff.value;
+          }
+        }
+      }
+    }
+    
     const kpis = {
-      wastePerBed: totalWeight / Math.max(hospitalCount * 100, 1),
-      wastePerSurgery: totalWeight / Math.max(hospitalCount * 50, 1),
-      wastePerProtocol: totalWeight / Math.max(hospitalCount * 1000, 1),
+      wastePerBed: totalBedDays > 0 ? totalWeight / totalBedDays : 0,
+      wastePerSurgery: totalSurgeries > 0 ? totalWeight / totalSurgeries : 0,
+      wastePerProtocol: totalProtocols > 0 ? totalWeight / totalProtocols : 0,
+      totalBedDays,
+      totalSurgeries,
+      totalProtocols,
       medicalWasteRatio: totalWeight > 0 ? medicalWeight / totalWeight : 0,
       recycleRatio: totalWeight > 0 ? recycleWeight / totalWeight : 0,
       costEfficiency: totalWeight > 0 ? Math.min((recycleWeight / totalWeight) + 0.5, 1) : 0.5,

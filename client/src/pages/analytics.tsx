@@ -21,6 +21,9 @@ interface AnalyticsData {
     wastePerBed: number;
     wastePerSurgery: number;
     wastePerProtocol: number;
+    totalBedDays: number;
+    totalSurgeries: number;
+    totalProtocols: number;
     medicalWasteRatio: number;
     recycleRatio: number;
     costEfficiency: number;
@@ -203,11 +206,32 @@ export default function AnalyticsPage() {
         </TabsList>
 
         <TabsContent value="kpi" className="space-y-6 mt-6">
+          {(data?.kpis.totalBedDays || 0) + (data?.kpis.totalSurgeries || 0) + (data?.kpis.totalProtocols || 0) > 0 && (
+            <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
+              <span>HBYS Verileri:</span>
+              {(data?.kpis.totalBedDays || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">{data?.kpis.totalBedDays?.toLocaleString()} yatış günü</Badge>
+              )}
+              {(data?.kpis.totalSurgeries || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">{data?.kpis.totalSurgeries?.toLocaleString()} ameliyat</Badge>
+              )}
+              {(data?.kpis.totalProtocols || 0) > 0 && (
+                <Badge variant="outline" className="text-xs">{data?.kpis.totalProtocols?.toLocaleString()} protokol</Badge>
+              )}
+            </div>
+          )}
+          {(data?.kpis.totalBedDays || 0) + (data?.kpis.totalSurgeries || 0) + (data?.kpis.totalProtocols || 0) === 0 && (
+            <div className="text-xs text-amber-500 flex items-center gap-2">
+              <AlertTriangle className="h-3 w-3" />
+              HBYS verisi girilmedi - KPI hesaplamaları için Ayarlar sayfasından veri girişi yapın
+            </div>
+          )}
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
             <KPICard
               title="Yatış Başına Atık"
               value={data?.kpis.wastePerBed?.toFixed(2) || "0"}
               unit="kg/gün"
+              subtitle={data?.kpis.totalBedDays ? `${data.kpis.totalBedDays.toLocaleString()} yatış günü` : "Veri yok"}
               icon={Target}
               trend={data?.kpis.wastePerBed && data.kpis.wastePerBed < 1.5 ? "down" : "up"}
               trendValue={data?.kpis.wastePerBed && data.kpis.wastePerBed < 1.5 ? "İyi" : "Yüksek"}
@@ -216,12 +240,14 @@ export default function AnalyticsPage() {
               title="Ameliyat Başına"
               value={data?.kpis.wastePerSurgery?.toFixed(2) || "0"}
               unit="kg"
+              subtitle={data?.kpis.totalSurgeries ? `${data.kpis.totalSurgeries.toLocaleString()} ameliyat` : "Veri yok"}
               icon={Target}
             />
             <KPICard
               title="Protokol Başına"
               value={data?.kpis.wastePerProtocol?.toFixed(3) || "0"}
               unit="kg"
+              subtitle={data?.kpis.totalProtocols ? `${data.kpis.totalProtocols.toLocaleString()} protokol` : "Veri yok"}
               icon={Target}
             />
             <KPICard

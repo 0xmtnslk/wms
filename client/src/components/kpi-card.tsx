@@ -6,6 +6,7 @@ interface KPICardProps {
   title: string;
   value: string | number;
   unit?: string;
+  subtitle?: string;
   icon?: LucideIcon;
   trend?: "up" | "down" | "neutral";
   trendValue?: string;
@@ -17,6 +18,7 @@ export function KPICard({
   title,
   value,
   unit,
+  subtitle,
   icon: Icon,
   trend,
   trendValue,
@@ -42,6 +44,9 @@ export function KPICard({
                 <span className="text-sm text-muted-foreground">{unit}</span>
               )}
             </div>
+            {subtitle && (
+              <p className="text-xs text-muted-foreground mt-1 truncate">{subtitle}</p>
+            )}
             {trend && trendValue && (
               <div className={`flex items-center gap-1 mt-1 ${trendColor}`}>
                 <TrendIcon className="h-3 w-3" />
