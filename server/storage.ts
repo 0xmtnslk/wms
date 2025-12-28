@@ -37,6 +37,7 @@ export interface IStorage {
   
   getLocationCategories(): Promise<LocationCategory[]>;
   createLocationCategory(category: InsertLocationCategory): Promise<LocationCategory>;
+  updateLocationCategory(id: string, updates: Partial<LocationCategory>): Promise<LocationCategory | undefined>;
   
   getLocations(hospitalId?: string): Promise<Location[]>;
   getLocationByCode(hospitalId: string, code: string): Promise<Location | undefined>;
@@ -150,6 +151,14 @@ export class DatabaseStorage implements IStorage {
   async createLocationCategory(category: InsertLocationCategory): Promise<LocationCategory> {
     const [created] = await db.insert(locationCategories).values(category).returning();
     return created;
+  }
+
+  async updateLocationCategory(id: string, updates: Partial<LocationCategory>): Promise<LocationCategory | undefined> {
+    const [updated] = await db.update(locationCategories)
+      .set(updates)
+      .where(eq(locationCategories.id, id))
+      .returning();
+    return updated;
   }
 
   async getLocations(hospitalId?: string): Promise<Location[]> {

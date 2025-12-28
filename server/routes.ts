@@ -26,6 +26,11 @@ async function hasManagerRole(userId: string): Promise<boolean> {
   return userRoles.some(ur => ur.role.name === "HQ" || ur.role.name === "HOSPITAL_MANAGER");
 }
 
+async function hasHQRole(userId: string): Promise<boolean> {
+  const userRoles = await storage.getUserRoles(userId);
+  return userRoles.some(ur => ur.role.name === "HQ");
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -151,6 +156,41 @@ export async function registerRoutes(
     try {
       const categories = await storage.getLocationCategories();
       res.json(categories);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.patch("/api/settings/location-categories/:id", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isHQ = await hasHQRole(userId);
+      
+      if (!isHQ) {
+        return res.status(403).json({ error: "Sadece HQ kullanıcıları referans değerlerini düzenleyebilir" });
+      }
+
+      const { id } = req.params;
+      const { referenceWasteFactor } = req.body;
+
+      if (referenceWasteFactor === undefined) {
+        return res.status(400).json({ error: "referenceWasteFactor gerekli" });
+      }
+
+      const numValue = parseFloat(referenceWasteFactor);
+      if (isNaN(numValue) || !isFinite(numValue) || numValue < 0) {
+        return res.status(400).json({ error: "Geçersiz referans değeri. Pozitif bir sayı giriniz." });
+      }
+
+      const updated = await storage.updateLocationCategory(id, { 
+        referenceWasteFactor: numValue.toFixed(2)
+      });
+
+      if (!updated) {
+        return res.status(404).json({ error: "Kategori bulunamadı" });
+      }
+
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Internal server error" });
     }

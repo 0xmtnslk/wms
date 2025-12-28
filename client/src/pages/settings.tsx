@@ -209,38 +209,23 @@ export default function SettingsPage() {
         <TabsContent value="categories" className="space-y-6 mt-6">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm font-medium">Mahal Kategorileri</CardTitle>
-              <CardDescription>Atık üretim referans değerleri</CardDescription>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="text-sm font-medium">Mahal Kategorileri</CardTitle>
+                  <CardDescription>Atık üretim referans değerleri</CardDescription>
+                </div>
+                {!isHQ && (
+                  <Badge variant="secondary" className="text-xs">
+                    Sadece görüntüleme
+                  </Badge>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              {categories && categories.length > 0 ? (
-                <div className="space-y-2">
-                  {categories.map((category) => (
-                    <div 
-                      key={category.id}
-                      className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50"
-                      data-testid={`category-row-${category.id}`}
-                    >
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{category.name}</span>
-                          <Badge variant="outline" className="text-xs font-mono">
-                            {category.code}
-                          </Badge>
-                        </div>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          Birim: {category.unit} | Referans: {category.referenceWasteFactor} kg
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
-                  <Settings2 className="h-8 w-8 mb-2 opacity-50" />
-                  <p className="text-sm">Kategori tanımı yok</p>
-                </div>
-              )}
+              <CategoryReferenceForm 
+                categories={categories || []} 
+                isEditable={isHQ}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -538,6 +523,126 @@ function QRCodeDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CategoryReferenceForm({ 
+  categories, 
+  isEditable 
+}: { 
+  categories: LocationCategory[];
+  isEditable: boolean;
+}) {
+  const { toast } = useToast();
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    categories.forEach(c => {
+      initial[c.id] = c.referenceWasteFactor;
+    });
+    return initial;
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [editedIds, setEditedIds] = useState<Set<string>>(new Set());
+
+  const handleValueChange = (categoryId: string, value: string) => {
+    setValues(prev => ({ ...prev, [categoryId]: value }));
+    setEditedIds(prev => new Set(prev).add(categoryId));
+  };
+
+  const handleSave = async () => {
+    if (editedIds.size === 0) return;
+    
+    setIsSaving(true);
+    try {
+      const idsToUpdate = Array.from(editedIds);
+      for (const categoryId of idsToUpdate) {
+        await apiRequest("PATCH", `/api/settings/location-categories/${categoryId}`, {
+          referenceWasteFactor: parseFloat(values[categoryId]) || 0
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/location-categories"] });
+      toast({
+        title: "Kaydedildi",
+        description: "Referans değerleri güncellendi",
+      });
+      setEditedIds(new Set());
+    } catch (error: any) {
+      const message = error?.message?.includes("403") 
+        ? "Bu işlem için yetkiniz yok" 
+        : "Kayıt sırasında bir hata oluştu";
+      toast({
+        title: "Hata",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (categories.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+        <Settings2 className="h-8 w-8 mb-2 opacity-50" />
+        <p className="text-sm">Kategori tanımı yok</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {categories.map((category) => (
+        <div 
+          key={category.id} 
+          className="flex items-center gap-4 p-3 rounded-md bg-muted/50"
+          data-testid={`category-row-${category.id}`}
+        >
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium">{category.name}</span>
+              <Badge variant="outline" className="text-xs font-mono">
+                {category.code}
+              </Badge>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Birim: {category.unit}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {isEditable ? (
+              <>
+                <Input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="w-24 text-right font-mono"
+                  value={values[category.id] || ""}
+                  onChange={(e) => handleValueChange(category.id, e.target.value)}
+                  data-testid={`input-reference-${category.code}`}
+                />
+                <span className="text-sm text-muted-foreground">kg</span>
+              </>
+            ) : (
+              <span className="font-mono text-sm">
+                {category.referenceWasteFactor} kg
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+      {isEditable && editedIds.size > 0 && (
+        <div className="flex justify-end pt-4 border-t">
+          <Button onClick={handleSave} disabled={isSaving} data-testid="button-save-references">
+            {isSaving ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4 mr-2" />
+            )}
+            Kaydet
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
