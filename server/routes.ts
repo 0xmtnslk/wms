@@ -585,5 +585,34 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/detailed-analytics/performance", requireAuth, async (req, res) => {
+    try {
+      const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
+      const endDate = req.query.endDate ? new Date(req.query.endDate as string) : undefined;
+      
+      const data = await storage.getHospitalPerformance(startDate, endDate);
+      res.json(data);
+    } catch (error) {
+      console.error("Performance analytics error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.get("/api/detailed-analytics/comparison", requireAuth, async (req, res) => {
+    try {
+      const { metric, hospitalFilter, categoryFilter } = req.query;
+      
+      const data = await storage.getCrossComparison(
+        metric as string || "weight",
+        hospitalFilter as string || "all",
+        categoryFilter as string || "all"
+      );
+      res.json(data);
+    } catch (error) {
+      console.error("Comparison analytics error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   return httpServer;
 }

@@ -14,6 +14,7 @@ import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import AnalyticsPage from "@/pages/analytics";
+import DetailedAnalyticsPage from "@/pages/detailed-analytics";
 import SettingsPage from "@/pages/settings";
 import IssuesPage from "@/pages/issues";
 import CollectorPage from "@/pages/collector";
@@ -24,6 +25,7 @@ function AuthenticatedRouter() {
       <Route path="/" component={DashboardPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/analytics/:hospitalId" component={AnalyticsPage} />
+      <Route path="/detailed-analytics" component={DetailedAnalyticsPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/issues" component={IssuesPage} />
       <Route path="/issues/:hospitalId" component={IssuesPage} />

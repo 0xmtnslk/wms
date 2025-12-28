@@ -585,6 +585,179 @@ export class DatabaseStorage implements IStorage {
       hospitalTimeStats
     };
   }
+
+  async getHospitalPerformance(startDate?: Date, endDate?: Date) {
+    const allHospitals = await this.getHospitals();
+    const allWasteTypes = await this.getWasteTypes();
+    const allCategories = await this.getLocationCategories();
+    const allLocations = await db.select().from(locations);
+    const allOpCoefficients = await db.select().from(operationalCoefficients);
+    
+    let collectionsQuery = db.select().from(wasteCollections);
+    let allCollections = await collectionsQuery;
+    
+    if (startDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) >= startDate);
+    }
+    if (endDate) {
+      allCollections = allCollections.filter(c => c.collectedAt && new Date(c.collectedAt) <= endDate);
+    }
+
+    const hospitalPerformances = allHospitals.map(hospital => {
+      const hCollections = allCollections.filter(c => c.hospitalId === hospital.id);
+      const hLocations = allLocations.filter(l => l.hospitalId === hospital.id);
+      
+      let totalWeight = 0;
+      let medicalWeight = 0;
+      let hazardousWeight = 0;
+      let domesticWeight = 0;
+      let recycleWeight = 0;
+
+      hCollections.forEach(c => {
+        const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+        const weight = parseFloat(c.weightKg as string) || 0;
+        totalWeight += weight;
+        if (wt?.code === 'medical') medicalWeight += weight;
+        if (wt?.code === 'hazardous') hazardousWeight += weight;
+        if (wt?.code === 'domestic') domesticWeight += weight;
+        if (wt?.code === 'recycle') recycleWeight += weight;
+      });
+
+      const categoryBreakdown = allCategories.map(cat => {
+        const catLocations = hLocations.filter(l => l.categoryId === cat.id);
+        const catLocationIds = catLocations.map(l => l.id);
+        const catCollections = hCollections.filter(c => c.locationId && catLocationIds.includes(c.locationId));
+        
+        let catMedical = 0, catHazardous = 0, catDomestic = 0, catRecycle = 0;
+        catCollections.forEach(c => {
+          const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+          const weight = parseFloat(c.weightKg as string) || 0;
+          if (wt?.code === 'medical') catMedical += weight;
+          if (wt?.code === 'hazardous') catHazardous += weight;
+          if (wt?.code === 'domestic') catDomestic += weight;
+          if (wt?.code === 'recycle') catRecycle += weight;
+        });
+
+        const catTotal = catMedical + catHazardous + catDomestic + catRecycle;
+        
+        const opCoef = allOpCoefficients.find(
+          oc => oc.hospitalId === hospital.id && oc.categoryId === cat.id
+        );
+        const opData = opCoef ? parseFloat(opCoef.value as string) : 
+          (cat.code === 'icu' ? 450 : cat.code === 'ward' ? 1200 : cat.code === 'surgery' ? 180 : 
+           cat.code === 'outpatient' ? 5000 : cat.code === 'admin' ? 50 : 1);
+
+        const kpi = opData > 0 ? catTotal / opData : 0;
+        const refFactor = parseFloat(cat.referenceWasteFactor as string) || 1.0;
+        const impact = refFactor > 0 ? ((refFactor - kpi) / refFactor) * 10 : 10;
+
+        return {
+          categoryId: cat.id,
+          categoryName: cat.name,
+          medicalKg: catMedical,
+          hazardousKg: catHazardous,
+          domesticKg: catDomestic,
+          recycleKg: catRecycle,
+          totalKg: catTotal,
+          opData,
+          kpi,
+          impact: Math.max(-10, Math.min(10, impact))
+        };
+      });
+
+      const totalOpData = categoryBreakdown.reduce((sum, c) => sum + c.opData, 0);
+      const wasteIndex = totalOpData > 0 ? totalWeight / (totalOpData * 0.1) : 0;
+      const score = Math.max(0, Math.min(100, Math.round(100 - (wasteIndex * 30))));
+
+      return {
+        id: hospital.id,
+        code: hospital.code,
+        name: hospital.name,
+        hex: hospital.colorHex || '#3b82f6',
+        score,
+        wasteIndex,
+        totalWeight,
+        isLeader: false,
+        categoryBreakdown
+      };
+    });
+
+    hospitalPerformances.sort((a, b) => b.score - a.score);
+    if (hospitalPerformances.length > 0) {
+      hospitalPerformances[0].isLeader = true;
+    }
+
+    return { hospitals: hospitalPerformances };
+  }
+
+  async getCrossComparison(metric: string, hospitalFilter: string, categoryFilter: string) {
+    const allHospitals = await this.getHospitals();
+    const allWasteTypes = await this.getWasteTypes();
+    const allLocations = await db.select().from(locations);
+    let allCollections = await db.select().from(wasteCollections);
+
+    if (hospitalFilter !== "all") {
+      allCollections = allCollections.filter(c => c.hospitalId === hospitalFilter);
+    }
+
+    if (categoryFilter !== "all") {
+      const categoryLocations = allLocations.filter(l => l.categoryId === categoryFilter);
+      const locationIds = categoryLocations.map(l => l.id);
+      allCollections = allCollections.filter(c => c.locationId && locationIds.includes(c.locationId));
+    }
+
+    const hospitalsToShow = hospitalFilter !== "all" 
+      ? allHospitals.filter(h => h.id === hospitalFilter)
+      : allHospitals;
+
+    const comparisonData = hospitalsToShow.map(hospital => {
+      const hCollections = allCollections.filter(c => c.hospitalId === hospital.id);
+      
+      let weight = 0, cost = 0;
+      let medicalKg = 0, hazardousKg = 0, domesticKg = 0, recycleKg = 0;
+
+      hCollections.forEach(c => {
+        const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+        const w = parseFloat(c.weightKg as string) || 0;
+        weight += w;
+        cost += w * (wt ? parseFloat(wt.costPerKg as string) : 0);
+        if (wt?.code === 'medical') medicalKg += w;
+        if (wt?.code === 'hazardous') hazardousKg += w;
+        if (wt?.code === 'domestic') domesticKg += w;
+        if (wt?.code === 'recycle') recycleKg += w;
+      });
+
+      const volume = hCollections.length;
+      const efficiency = weight > 0 ? recycleKg / weight : 0;
+
+      return {
+        id: hospital.id,
+        code: hospital.code,
+        name: hospital.name,
+        hex: hospital.colorHex || '#3b82f6',
+        weight,
+        cost,
+        efficiency,
+        volume,
+        medicalKg,
+        hazardousKg,
+        domesticKg,
+        recycleKg
+      };
+    });
+
+    const sortKey = metric === "efficiency" ? "efficiency" : 
+                    metric === "cost" ? "cost" : 
+                    metric === "volume" ? "volume" :
+                    metric === "medical" ? "medicalKg" :
+                    metric === "hazardous" ? "hazardousKg" :
+                    metric === "domestic" ? "domesticKg" :
+                    metric === "recycle" ? "recycleKg" : "weight";
+
+    comparisonData.sort((a, b) => (b as any)[sortKey] - (a as any)[sortKey]);
+
+    return { hospitals: comparisonData };
+  }
 }
 
 export const storage = new DatabaseStorage();
