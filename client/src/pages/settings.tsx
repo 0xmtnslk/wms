@@ -61,9 +61,10 @@ export default function SettingsPage() {
   const currentHospital = useCurrentHospital();
   const isHQ = useIsHQ();
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("locations");
+  const [activeTab, setActiveTab] = useState(() => isHQ ? "categories" : "locations");
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [showQRDialog, setShowQRDialog] = useState(false);
+  const [showAddCategoryDialog, setShowAddCategoryDialog] = useState(false);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
 
   const hospitalId = currentHospital?.id;
@@ -109,23 +110,30 @@ export default function SettingsPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 h-auto">
-          <TabsTrigger value="locations" className="gap-2" data-testid="tab-locations">
-            <QrCode className="h-4 w-4" />
-            <span className="hidden sm:inline">Mahaller</span>
-          </TabsTrigger>
-          <TabsTrigger value="coefficients" className="gap-2" data-testid="tab-coefficients">
-            <Database className="h-4 w-4" />
-            <span className="hidden sm:inline">HBYS Verileri</span>
-          </TabsTrigger>
-          <TabsTrigger value="categories" className="gap-2" data-testid="tab-categories">
-            <Settings2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Kategoriler</span>
-          </TabsTrigger>
-          <TabsTrigger value="costs" className="gap-2" data-testid="tab-costs">
-            <DollarSign className="h-4 w-4" />
-            <span className="hidden sm:inline">Maliyetler</span>
-          </TabsTrigger>
+        <TabsList className={`grid w-full h-auto ${isHQ ? 'grid-cols-2' : 'grid-cols-2'}`}>
+          {isHQ ? (
+            <>
+              <TabsTrigger value="categories" className="gap-2" data-testid="tab-categories">
+                <Settings2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Kategoriler</span>
+              </TabsTrigger>
+              <TabsTrigger value="costs" className="gap-2" data-testid="tab-costs">
+                <DollarSign className="h-4 w-4" />
+                <span className="hidden sm:inline">Maliyetler</span>
+              </TabsTrigger>
+            </>
+          ) : (
+            <>
+              <TabsTrigger value="locations" className="gap-2" data-testid="tab-locations">
+                <QrCode className="h-4 w-4" />
+                <span className="hidden sm:inline">Mahaller</span>
+              </TabsTrigger>
+              <TabsTrigger value="coefficients" className="gap-2" data-testid="tab-coefficients">
+                <Database className="h-4 w-4" />
+                <span className="hidden sm:inline">HBYS Verileri</span>
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="locations" className="space-y-6 mt-6">
@@ -231,12 +239,13 @@ export default function SettingsPage() {
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <CardTitle className="text-sm font-medium">Mahal Kategorileri</CardTitle>
-                  <CardDescription>Atık üretim referans değerleri</CardDescription>
+                  <CardDescription>Atık üretim referans değerleri - Tüm hastaneler için geçerli</CardDescription>
                 </div>
-                {!isHQ && (
-                  <Badge variant="secondary" className="text-xs">
-                    Sadece görüntüleme
-                  </Badge>
+                {isHQ && (
+                  <Button size="sm" onClick={() => setShowAddCategoryDialog(true)} data-testid="button-add-category">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Yeni Kategori
+                  </Button>
                 )}
               </div>
             </CardHeader>
@@ -287,6 +296,11 @@ export default function SettingsPage() {
         onOpenChange={setShowQRDialog}
         location={selectedLocation}
         hospitalName={currentHospital?.name || ""}
+      />
+
+      <AddCategoryDialog
+        open={showAddCategoryDialog}
+        onOpenChange={setShowAddCategoryDialog}
       />
     </div>
   );
@@ -562,6 +576,146 @@ function QRCodeDialog({
           <Button onClick={handlePrint} data-testid="button-print-qr">
             <Printer className="h-4 w-4 mr-2" />
             Yazdır
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AddCategoryDialog({
+  open,
+  onOpenChange
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const { toast } = useToast();
+  const [code, setCode] = useState("");
+  const [name, setName] = useState("");
+  const [unit, setUnit] = useState("");
+  const [referenceWasteFactor, setReferenceWasteFactor] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!code.trim() || !name.trim() || !unit.trim()) {
+      toast({
+        title: "Hata",
+        description: "Lütfen tüm zorunlu alanları doldurun",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      await apiRequest("POST", "/api/settings/location-categories", {
+        code: code.trim().toUpperCase(),
+        name: name.trim(),
+        unit: unit.trim(),
+        referenceWasteFactor: parseFloat(referenceWasteFactor) || 0
+      });
+
+      queryClient.invalidateQueries({ queryKey: ["/api/settings/location-categories"] });
+      toast({
+        title: "Kategori Eklendi",
+        description: `${name} kategorisi tüm hastaneler için oluşturuldu`,
+      });
+      onOpenChange(false);
+      setCode("");
+      setName("");
+      setUnit("");
+      setReferenceWasteFactor("");
+    } catch (error: any) {
+      const message = error?.message?.includes("403") 
+        ? "Bu işlem için yetkiniz yok" 
+        : "Kayıt sırasında bir hata oluştu";
+      toast({
+        title: "Hata",
+        description: message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Yeni Kategori Ekle</DialogTitle>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            Bu kategori tüm hastaneler için otomatik olarak geçerli olacaktır.
+          </p>
+          
+          <div className="space-y-2">
+            <Label htmlFor="category-code">Kategori Kodu</Label>
+            <Input
+              id="category-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              placeholder="YATAK, YEMEK, vb."
+              className="font-mono"
+              data-testid="input-category-code"
+            />
+          </div>
+          
+          <div className="space-y-2">
+            <Label htmlFor="category-name">Kategori Adı</Label>
+            <Input
+              id="category-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Yatak Sayısı, Yemek Sayısı, vb."
+              data-testid="input-category-name"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="category-unit">Birim</Label>
+            <Input
+              id="category-unit"
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="adet, porsiyon, vb."
+              data-testid="input-category-unit"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="reference-factor">Referans Atık Faktörü (kg)</Label>
+            <Input
+              id="reference-factor"
+              type="number"
+              step="0.01"
+              min="0"
+              value={referenceWasteFactor}
+              onChange={(e) => setReferenceWasteFactor(e.target.value)}
+              placeholder="0.00"
+              className="font-mono"
+              data-testid="input-reference-factor"
+            />
+            <p className="text-xs text-muted-foreground">
+              Bu değer birim başına beklenen atık miktarını (kg) belirtir
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            İptal
+          </Button>
+          <Button onClick={handleSubmit} disabled={isSubmitting} data-testid="button-submit-category">
+            {isSubmitting ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4 mr-2" />
+            )}
+            Ekle
           </Button>
         </DialogFooter>
       </DialogContent>

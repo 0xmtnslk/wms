@@ -161,6 +161,38 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/settings/location-categories", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const isHQ = await hasHQRole(userId);
+      
+      if (!isHQ) {
+        return res.status(403).json({ error: "Sadece HQ kullanıcıları kategori ekleyebilir" });
+      }
+
+      const { code, name, unit, referenceWasteFactor } = req.body;
+
+      if (!code || !name || !unit) {
+        return res.status(400).json({ error: "Kod, ad ve birim alanları zorunludur" });
+      }
+
+      const category = await storage.createLocationCategory({
+        code: code.toUpperCase(),
+        name,
+        unit,
+        referenceWasteFactor: (referenceWasteFactor || 0).toFixed(2)
+      });
+
+      res.json(category);
+    } catch (error: any) {
+      if (error.code === '23505') {
+        res.status(400).json({ error: "Bu kod zaten kullanımda" });
+      } else {
+        res.status(500).json({ error: "Internal server error" });
+      }
+    }
+  });
+
   app.patch("/api/settings/location-categories/:id", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
