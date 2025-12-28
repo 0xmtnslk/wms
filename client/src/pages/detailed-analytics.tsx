@@ -68,6 +68,25 @@ interface CrossComparisonData {
   }[];
 }
 
+interface CategoryPerformance {
+  id: string;
+  code: string;
+  name: string;
+  hex: string;
+  score: number;
+  wasteIndex: number;
+  totalWeight: number;
+  medicalWeight: number;
+  hazardousWeight: number;
+  domesticWeight: number;
+  recycleWeight: number;
+  opData: number;
+  kpi: number;
+  impact: number;
+  locationCount: number;
+  isLeader: boolean;
+}
+
 function getPeriodDates(period: PeriodType, customRange: DateRange): { start: Date; end: Date } {
   const now = new Date();
   switch (period) {
@@ -352,6 +371,223 @@ function MiniTrendLine({ data, color }: { data: number[]; color: string }) {
         transition={{ delay: 1, duration: 0.3 }}
       />
     </svg>
+  );
+}
+
+function CategoryCard({ category, isExpanded, onToggle }: { 
+  category: CategoryPerformance; 
+  isExpanded: boolean; 
+  onToggle: () => void;
+}) {
+  return (
+    <Card className="overflow-visible">
+      <div 
+        className="p-4 cursor-pointer hover-elevate"
+        onClick={onToggle}
+        data-testid={`card-category-${category.id}`}
+      >
+        <div className="flex items-start gap-3">
+          <div 
+            className="w-1 h-12 rounded-full bg-primary" 
+          />
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-semibold">{category.name}</h3>
+                <Badge variant="outline" className="text-xs">{category.locationCount} mahal</Badge>
+              </div>
+              {category.isLeader && (
+                <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/20 gap-1">
+                  <Trophy className="h-3 w-3" />
+                  LİDER
+                </Badge>
+              )}
+            </div>
+            <div className="flex items-baseline gap-2 mb-2">
+              <span className="text-2xl font-bold">{category.score}</span>
+              <span className="text-sm text-muted-foreground">/100</span>
+              <span className="text-sm text-muted-foreground ml-2">
+                Atık Yükü Endeksi: <span className="font-mono">{category.wasteIndex.toFixed(2)}</span>
+              </span>
+            </div>
+            <ScoreBar score={category.score} />
+          </div>
+          <Button variant="ghost" size="icon" className="shrink-0">
+            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </Button>
+        </div>
+      </div>
+      
+      {isExpanded && (
+        <CardContent className="pt-0 border-t">
+          <div className="pt-4">
+            <div className="flex items-center gap-2 mb-3 text-muted-foreground">
+              <span className="text-sm font-medium">ATIK DAĞILIMI</span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="p-3 rounded-md bg-rose-500/10 border border-rose-500/20">
+                <p className="text-xs text-muted-foreground mb-1">Tıbbi Atık</p>
+                <p className="text-lg font-bold text-rose-500">{category.medicalWeight.toFixed(1)} kg</p>
+              </div>
+              <div className="p-3 rounded-md bg-amber-500/10 border border-amber-500/20">
+                <p className="text-xs text-muted-foreground mb-1">Tehlikeli Atık</p>
+                <p className="text-lg font-bold text-amber-500">{category.hazardousWeight.toFixed(1)} kg</p>
+              </div>
+              <div className="p-3 rounded-md bg-slate-500/10 border border-slate-500/20">
+                <p className="text-xs text-muted-foreground mb-1">Evsel Atık</p>
+                <p className="text-lg font-bold text-slate-500">{category.domesticWeight.toFixed(1)} kg</p>
+              </div>
+              <div className="p-3 rounded-md bg-cyan-500/10 border border-cyan-500/20">
+                <p className="text-xs text-muted-foreground mb-1">Geri Dönüşüm</p>
+                <p className="text-lg font-bold text-cyan-500">{category.recycleWeight.toFixed(1)} kg</p>
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-3 text-center">
+              <div>
+                <p className="text-xs text-muted-foreground">Toplam Atık</p>
+                <p className="text-lg font-bold">{category.totalWeight.toFixed(1)} kg</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">KPI</p>
+                <p className="text-lg font-bold font-mono">{category.kpi.toFixed(2)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Puan Etkisi</p>
+                <p className={cn("text-lg font-bold font-mono", category.impact >= 0 ? "text-green-500" : "text-red-500")}>
+                  {category.impact >= 0 ? "+" : ""}{category.impact.toFixed(1)}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 text-center">
+              * KPI = Toplam Atık / Operasyonel Veri. Puan Etkisi = Referans değerine göre sapma.
+            </p>
+          </div>
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+function CategoryPerformanceTab() {
+  const currentHospital = useCurrentHospital();
+  const [period, setPeriod] = useState<PeriodType>("yearly");
+  const [customRange, setCustomRange] = useState<DateRange>({ from: undefined, to: undefined });
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
+
+  const dates = useMemo(() => getPeriodDates(period, customRange), [period, customRange]);
+
+  const { data, isLoading } = useQuery<{ categories: CategoryPerformance[] }>({
+    queryKey: ["/api/detailed-analytics/category-performance", currentHospital?.id, dates.start.toISOString(), dates.end.toISOString()],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        hospitalId: currentHospital?.id || "",
+        startDate: dates.start.toISOString(),
+        endDate: dates.end.toISOString()
+      });
+      const res = await fetch(`/api/detailed-analytics/category-performance?${params}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) throw new Error('Failed to fetch');
+      return res.json();
+    },
+    enabled: !!currentHospital?.id
+  });
+
+  if (!currentHospital) {
+    return (
+      <Card>
+        <CardContent className="py-8 text-center text-muted-foreground">
+          Hastane bilgisi bulunamadı.
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        {[1, 2, 3].map(i => (
+          <Skeleton key={i} className="h-32 w-full" />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardContent className="py-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-muted-foreground">Analiz Periyodu:</span>
+            <div className="flex items-center gap-1 flex-wrap">
+              {[
+                { value: "daily", label: "Günlük" },
+                { value: "monthly", label: "Aylık" },
+                { value: "3month", label: "3 Aylık" },
+                { value: "6month", label: "6 Aylık" },
+                { value: "yearly", label: "Yıllık" },
+              ].map((p) => (
+                <Button
+                  key={p.value}
+                  variant={period === p.value ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setPeriod(p.value as PeriodType)}
+                  data-testid={`button-period-${p.value}`}
+                >
+                  {p.label}
+                </Button>
+              ))}
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button 
+                    variant={period === "custom" ? "default" : "ghost"} 
+                    size="icon"
+                    data-testid="button-period-custom"
+                  >
+                    <Calendar className="h-4 w-4" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <CalendarComponent
+                    mode="range"
+                    selected={{ from: customRange.from, to: customRange.to }}
+                    onSelect={(range) => {
+                      setCustomRange({ from: range?.from, to: range?.to });
+                      if (range?.from && range?.to) {
+                        setPeriod("custom");
+                      }
+                    }}
+                    locale={tr}
+                    numberOfMonths={2}
+                  />
+                </PopoverContent>
+              </Popover>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="space-y-3">
+        {data?.categories?.map((category, idx) => (
+          <CategoryCard
+            key={category.id}
+            category={{ ...category, isLeader: idx === 0 }}
+            isExpanded={expandedCategory === category.id}
+            onToggle={() => setExpandedCategory(
+              expandedCategory === category.id ? null : category.id
+            )}
+          />
+        ))}
+        {(!data?.categories || data.categories.length === 0) && (
+          <Card>
+            <CardContent className="py-8 text-center text-muted-foreground">
+              Seçilen periyod için veri bulunamadı.
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -1009,7 +1245,7 @@ export default function DetailedAnalyticsPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="performance" data-testid="tab-performance">
-            {isHQ ? "Hastane Performans" : "Bölüm Performans"}
+            {isHQ ? "Hastane Performans" : "Kategori Performans"}
           </TabsTrigger>
           <TabsTrigger value="comparison" data-testid="tab-comparison">
             {isHQ ? "Çapraz Kıyaslama" : "Kategori Kıyaslama"}
@@ -1017,7 +1253,7 @@ export default function DetailedAnalyticsPage() {
         </TabsList>
 
         <TabsContent value="performance" className="mt-4">
-          <HospitalPerformanceTab />
+          {isHQ ? <HospitalPerformanceTab /> : <CategoryPerformanceTab />}
         </TabsContent>
 
         <TabsContent value="comparison" className="mt-4">
