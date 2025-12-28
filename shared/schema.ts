@@ -1,5 +1,5 @@
 import { sql, relations } from "drizzle-orm";
-import { pgTable, text, varchar, boolean, decimal, integer, timestamp, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, boolean, decimal, integer, timestamp, date, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -93,7 +93,7 @@ export const operationalCoefficients = pgTable("operational_coefficients", {
 export const wasteTypeCosts = pgTable("waste_type_costs", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   wasteTypeId: varchar("waste_type_id", { length: 36 }).notNull().references(() => wasteTypes.id),
-  period: varchar("period", { length: 7 }).notNull(),
+  effectiveFrom: date("effective_from").notNull(),
   costPerKg: decimal("cost_per_kg", { precision: 10, scale: 2 }).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
@@ -110,6 +110,7 @@ export const wasteCollections = pgTable("waste_collections", {
   weighedAt: timestamp("weighed_at"),
   status: collectionStatusEnum("status").default("pending"),
   weightKg: decimal("weight_kg", { precision: 10, scale: 3 }),
+  appliedCostPerKg: decimal("applied_cost_per_kg", { precision: 10, scale: 2 }),
   isManualWeight: boolean("is_manual_weight").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
