@@ -423,15 +423,17 @@ export class DatabaseStorage implements IStorage {
       .filter(c => allWasteTypes.find(wt => wt.id === c.wasteTypeId)?.code === 'recycle')
       .reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0);
 
+    const hospitalCount = hospitalId ? 1 : allHospitals.length;
     const kpis = {
-      wastePerBed: totalWeight / Math.max(allHospitals.length * 100, 1),
-      wastePerSurgery: totalWeight / Math.max(allHospitals.length * 50, 1),
-      wastePerProtocol: totalWeight / Math.max(allHospitals.length * 1000, 1),
+      wastePerBed: totalWeight / Math.max(hospitalCount * 100, 1),
+      wastePerSurgery: totalWeight / Math.max(hospitalCount * 50, 1),
+      wastePerProtocol: totalWeight / Math.max(hospitalCount * 1000, 1),
       medicalWasteRatio: totalWeight > 0 ? medicalWeight / totalWeight : 0,
       recycleRatio: totalWeight > 0 ? recycleWeight / totalWeight : 0,
       costEfficiency: totalWeight > 0 ? Math.min((recycleWeight / totalWeight) + 0.5, 1) : 0.5,
-      totalHospitals: allHospitals.length,
-      totalCollections: collections.length
+      totalHospitals: hospitalCount,
+      totalCollections: collections.length,
+      isFiltered: !!hospitalId
     };
 
     const categoryRanking = allWasteTypes.map(wt => {
@@ -483,28 +485,34 @@ export class DatabaseStorage implements IStorage {
 
     const totalCost = costAnalysis.reduce((sum, c) => sum + c.totalCost, 0);
 
-    const hospitalCosts = allHospitals.map(h => {
-      const hCollections = allCollections.filter(c => c.hospitalId === h.id);
-      let hCost = 0;
-      hCollections.forEach(c => {
-        const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
-        if (wt) {
-          hCost += (parseFloat(c.weightKg as string) || 0) * parseFloat(wt.costPerKg as string);
-        }
-      });
-      return {
-        id: h.id,
-        code: h.code,
-        name: h.name,
-        totalCost: hCost,
-        totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
-        hex: h.colorHex || '#3b82f6'
-      };
-    });
+    let hospitalCosts: { id: string; code: string; name: string; totalCost: number; totalWeight: number; hex: string }[] = [];
+    let bestHospitals: typeof hospitalCosts = [];
+    let worstHospitals: typeof hospitalCosts = [];
 
-    const sortedByCost = [...hospitalCosts].sort((a, b) => a.totalCost - b.totalCost);
-    const bestHospitals = sortedByCost.slice(0, 3);
-    const worstHospitals = sortedByCost.slice(-3).reverse();
+    if (!hospitalId) {
+      hospitalCosts = allHospitals.map(h => {
+        const hCollections = allCollections.filter(c => c.hospitalId === h.id);
+        let hCost = 0;
+        hCollections.forEach(c => {
+          const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
+          if (wt) {
+            hCost += (parseFloat(c.weightKg as string) || 0) * parseFloat(wt.costPerKg as string);
+          }
+        });
+        return {
+          id: h.id,
+          code: h.code,
+          name: h.name,
+          totalCost: hCost,
+          totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
+          hex: h.colorHex || '#3b82f6'
+        };
+      });
+
+      const sortedByCost = [...hospitalCosts].sort((a, b) => a.totalCost - b.totalCost);
+      bestHospitals = sortedByCost.slice(0, 3);
+      worstHospitals = sortedByCost.slice(-3).reverse();
+    }
 
     const timeAnalysis = Array.from({ length: 24 }, (_, hour) => {
       const hourCollections = collections.filter(c => c.collectedAt?.getHours() === hour);
@@ -537,26 +545,30 @@ export class DatabaseStorage implements IStorage {
           .reduce((sum, t, _, arr) => sum + t / arr.length, 0)
       : 15;
 
-    const hospitalTimeStats = allHospitals.map(h => {
-      const hCollections = allCollections.filter(c => c.hospitalId === h.id);
-      const hIssues = allIssues.filter(i => i.hospitalId === h.id);
-      const avgTime = hCollections.length > 0 
-        ? hCollections.filter(c => c.weighedAt && c.collectedAt)
-            .map(c => (new Date(c.weighedAt!).getTime() - new Date(c.collectedAt!).getTime()) / 60000)
-            .reduce((sum, t, _, arr) => sum + t / arr.length, 0) || 15
-        : 15;
-      
-      return {
-        id: h.id,
-        code: h.code,
-        name: h.name,
-        avgCollectionTime: avgTime,
-        totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
-        collectionsCount: hCollections.length,
-        issueCount: hIssues.filter(i => !i.isResolved).length,
-        hex: h.colorHex || '#3b82f6'
-      };
-    });
+    let hospitalTimeStats: { id: string; code: string; name: string; avgCollectionTime: number; totalWeight: number; collectionsCount: number; issueCount: number; hex: string }[] = [];
+    
+    if (!hospitalId) {
+      hospitalTimeStats = allHospitals.map(h => {
+        const hCollections = allCollections.filter(c => c.hospitalId === h.id);
+        const hIssues = allIssues.filter(i => i.hospitalId === h.id);
+        const avgTime = hCollections.length > 0 
+          ? hCollections.filter(c => c.weighedAt && c.collectedAt)
+              .map(c => (new Date(c.weighedAt!).getTime() - new Date(c.collectedAt!).getTime()) / 60000)
+              .reduce((sum, t, _, arr) => sum + t / arr.length, 0) || 15
+          : 15;
+        
+        return {
+          id: h.id,
+          code: h.code,
+          name: h.name,
+          avgCollectionTime: avgTime,
+          totalWeight: hCollections.reduce((sum, c) => sum + (parseFloat(c.weightKg as string) || 0), 0),
+          collectionsCount: hCollections.length,
+          issueCount: hIssues.filter(i => !i.isResolved).length,
+          hex: h.colorHex || '#3b82f6'
+        };
+      });
+    }
 
     return {
       kpis,
