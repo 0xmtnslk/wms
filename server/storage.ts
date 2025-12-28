@@ -1,6 +1,6 @@
 import { 
   users, hospitals, roles, userHospitals, userRoles,
-  wasteTypes, locationCategories, locations, operationalCoefficients,
+  wasteTypes, locationCategories, locations, operationalCoefficients, wasteTypeCosts,
   wasteCollections, issues, syncLogs,
   type User, type InsertUser,
   type Hospital, type InsertHospital,
@@ -9,6 +9,7 @@ import {
   type LocationCategory, type InsertLocationCategory,
   type Location, type InsertLocation,
   type OperationalCoefficient, type InsertOperationalCoefficient,
+  type WasteTypeCost, type InsertWasteTypeCost,
   type WasteCollection, type InsertWasteCollection,
   type Issue, type InsertIssue
 } from "@shared/schema";
@@ -46,6 +47,9 @@ export interface IStorage {
   
   getOperationalCoefficients(hospitalId: string, period?: string): Promise<OperationalCoefficient[]>;
   upsertOperationalCoefficient(coeff: InsertOperationalCoefficient): Promise<OperationalCoefficient>;
+  
+  getWasteTypeCosts(period?: string): Promise<WasteTypeCost[]>;
+  upsertWasteTypeCost(cost: InsertWasteTypeCost): Promise<WasteTypeCost>;
   
   getWasteCollections(hospitalId?: string, limit?: number): Promise<WasteCollection[]>;
   getWasteCollectionByTag(tagCode: string): Promise<WasteCollection | undefined>;
@@ -219,6 +223,34 @@ export class DatabaseStorage implements IStorage {
     }
 
     const [created] = await db.insert(operationalCoefficients).values(coeff).returning();
+    return created;
+  }
+
+  async getWasteTypeCosts(period?: string): Promise<WasteTypeCost[]> {
+    if (period) {
+      return db.select().from(wasteTypeCosts).where(eq(wasteTypeCosts.period, period));
+    }
+    return db.select().from(wasteTypeCosts);
+  }
+
+  async upsertWasteTypeCost(cost: InsertWasteTypeCost): Promise<WasteTypeCost> {
+    const existing = await db.select().from(wasteTypeCosts).where(
+      and(
+        eq(wasteTypeCosts.wasteTypeId, cost.wasteTypeId),
+        eq(wasteTypeCosts.period, cost.period)
+      )
+    );
+
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(wasteTypeCosts)
+        .set({ costPerKg: cost.costPerKg, updatedAt: new Date() })
+        .where(eq(wasteTypeCosts.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db.insert(wasteTypeCosts).values(cost).returning();
     return created;
   }
 
