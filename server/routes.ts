@@ -156,10 +156,26 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/settings/locations/:hospitalId", requireAuth, async (req, res) => {
+    try {
+      const hospitalId = req.params.hospitalId;
+      const locationsList = await storage.getLocations(hospitalId);
+      const categories = await storage.getLocationCategories();
+      
+      const enriched = locationsList.map(loc => ({
+        ...loc,
+        categoryName: categories.find(c => c.id === loc.categoryId)?.name
+      }));
+      
+      res.json(enriched);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/settings/locations", requireAuth, async (req, res) => {
     try {
-      const hospitalId = req.query.hospitalId as string | undefined;
-      const locationsList = await storage.getLocations(hospitalId);
+      const locationsList = await storage.getLocations();
       const categories = await storage.getLocationCategories();
       
       const enriched = locationsList.map(loc => ({
@@ -241,14 +257,10 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/settings/operational-coefficients", requireAuth, async (req, res) => {
+  app.get("/api/settings/operational-coefficients/:hospitalId", requireAuth, async (req, res) => {
     try {
-      const hospitalId = req.query.hospitalId as string;
+      const hospitalId = req.params.hospitalId;
       const period = req.query.period as string | undefined;
-      
-      if (!hospitalId) {
-        return res.status(400).json({ error: "hospitalId required" });
-      }
 
       const coefficients = await storage.getOperationalCoefficients(hospitalId, period);
       const categories = await storage.getLocationCategories();
