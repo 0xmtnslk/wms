@@ -286,3 +286,21 @@
     inset: -1px;
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-label,
+  .print-label * {
+    visibility: visible !important;
+  }
+  .print-label {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    background: white !important;
+    padding: 20px !important;
+  }
+}

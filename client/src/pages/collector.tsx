@@ -338,7 +338,7 @@ function CollectView({ onBack }: { onBack: () => void }) {
 
       {step === "confirm" && (
         <div className="flex-1 flex flex-col space-y-4">
-          <Card>
+          <Card className="print-label">
             <CardHeader>
               <CardTitle className="text-sm">Etiket Onizleme</CardTitle>
             </CardHeader>
@@ -552,12 +552,25 @@ function IssueView({ onBack }: { onBack: () => void }) {
   
   const [category, setCategory] = useState("");
   const [tagCode, setTagCode] = useState("");
+  const [locationCode, setLocationCode] = useState("");
+  const [locationSearch, setLocationSearch] = useState("");
   const [description, setDescription] = useState("");
   const [photos, setPhotos] = useState<string[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [showQRScanner, setShowQRScanner] = useState(false);
+  const [showLocationScanner, setShowLocationScanner] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
+
+  const { data: locations } = useQuery<Location[]>({
+    queryKey: ["/api/settings/locations", currentHospital?.id],
+    enabled: !!currentHospital?.id,
+  });
+
+  const filteredLocations = (locations || []).filter(loc => 
+    loc.code.toLowerCase().includes(locationSearch.toLowerCase()) ||
+    (loc.customLabel && loc.customLabel.toLowerCase().includes(locationSearch.toLowerCase()))
+  );
 
   const issueMutation = useMutation({
     mutationFn: async () => {
@@ -565,6 +578,7 @@ function IssueView({ onBack }: { onBack: () => void }) {
         hospitalId: currentHospital?.id,
         category,
         tagCode: tagCode || null,
+        locationCode: locationCode || null,
         description,
         photoUrls: photos.length > 0 ? photos : null,
       });
@@ -596,16 +610,54 @@ function IssueView({ onBack }: { onBack: () => void }) {
     });
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (files) {
-      Array.from(files).forEach(file => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          setPhotos(prev => [...prev, reader.result as string]);
-        };
-        reader.readAsDataURL(file);
+  const handleLocationScan = (scannedCode: string) => {
+    const matchedLocation = locations?.find(loc => 
+      loc.code.toUpperCase() === scannedCode.toUpperCase()
+    );
+    if (matchedLocation) {
+      setLocationCode(matchedLocation.code);
+      toast({
+        title: "Lokasyon bulundu",
+        description: matchedLocation.code,
       });
+    } else {
+      toast({
+        title: "Lokasyon bulunamadi",
+        description: `QR: ${scannedCode}`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const compressImage = (file: File, maxWidth = 800, quality = 0.7): Promise<string> => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const ratio = Math.min(maxWidth / img.width, maxWidth / img.height, 1);
+          canvas.width = img.width * ratio;
+          canvas.height = img.height * ratio;
+          const ctx = canvas.getContext('2d')!;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = e.target?.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files && photos.length < 5) {
+      const remaining = 5 - photos.length;
+      const filesToProcess = Array.from(files).slice(0, remaining);
+      for (const file of filesToProcess) {
+        const compressed = await compressImage(file);
+        setPhotos(prev => [...prev, compressed]);
+      }
     }
   };
 
@@ -631,14 +683,16 @@ function IssueView({ onBack }: { onBack: () => void }) {
       const recognition = new SpeechRecognition();
       recognition.lang = 'tr-TR';
       recognition.continuous = true;
-      recognition.interimResults = true;
+      recognition.interimResults = false;
 
       recognition.onresult = (event: any) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
+        const result = event.results[event.results.length - 1];
+        if (result.isFinal) {
+          const transcript = result[0].transcript.trim();
+          if (transcript) {
+            setDescription(prev => prev ? prev + ' ' + transcript : transcript);
+          }
         }
-        setDescription(prev => prev + ' ' + transcript);
       };
 
       recognition.onerror = () => {
@@ -688,6 +742,56 @@ function IssueView({ onBack }: { onBack: () => void }) {
                   <SelectItem value="other">Diger</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Lokasyon (Opsiyonel)</Label>
+              <Button 
+                className="w-full gap-2" 
+                variant="outline" 
+                onClick={() => setShowLocationScanner(true)}
+                data-testid="button-scan-location-qr"
+              >
+                <Camera className="h-4 w-4" />
+                Kamera ile QR Tara
+              </Button>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Lokasyon ara..."
+                  value={locationSearch}
+                  onChange={(e) => setLocationSearch(e.target.value)}
+                  className="pl-10"
+                  data-testid="input-issue-location-search"
+                />
+              </div>
+              <div className="max-h-32 overflow-y-auto space-y-1 border rounded-md p-2">
+                {filteredLocations.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-2">Lokasyon bulunamadi</p>
+                ) : (
+                  filteredLocations.slice(0, 10).map((loc) => (
+                    <Button
+                      key={loc.id}
+                      variant={locationCode === loc.code ? "default" : "ghost"}
+                      className="w-full justify-start font-mono text-xs"
+                      onClick={() => setLocationCode(loc.code)}
+                      data-testid={`button-issue-location-${loc.code}`}
+                    >
+                      <MapPin className="h-3 w-3 mr-2" />
+                      {loc.code}
+                    </Button>
+                  ))
+                )}
+              </div>
+              {locationCode && (
+                <div className="flex items-center gap-2 p-2 rounded-md bg-muted">
+                  <MapPin className="h-3 w-3" />
+                  <span className="text-xs font-mono">{locationCode}</span>
+                  <Button variant="ghost" size="icon" className="h-5 w-5 ml-auto" onClick={() => setLocationCode("")}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -808,6 +912,12 @@ function IssueView({ onBack }: { onBack: () => void }) {
         onClose={() => setShowQRScanner(false)}
         onScan={handleQRScan}
         title="Etiket QR Tara"
+      />
+      <QRScanner 
+        open={showLocationScanner} 
+        onClose={() => setShowLocationScanner(false)}
+        onScan={handleLocationScan}
+        title="Lokasyon QR Tara"
       />
     </div>
   );
