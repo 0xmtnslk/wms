@@ -596,6 +596,48 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/issues/:id", requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const issue = await storage.getIssueById(id);
+      
+      if (!issue) {
+        return res.status(404).json({ error: "Issue not found" });
+      }
+      
+      const allHospitals = await storage.getHospitals();
+      const hospital = allHospitals.find(h => h.id === issue.hospitalId);
+      const reporter = issue.reportedByUserId ? await storage.getUser(issue.reportedByUserId) : null;
+      
+      let locationInfo = null;
+      if (issue.wasteCollectionId) {
+        const collection = await storage.getWasteCollectionByTag(issue.tagCode || '');
+        if (collection?.locationId) {
+          const allLocations = await storage.getLocations(issue.hospitalId);
+          const location = allLocations.find(l => l.id === collection.locationId);
+          if (location) {
+            const categories = await storage.getLocationCategories();
+            const category = categories.find(c => c.id === location.categoryId);
+            locationInfo = {
+              code: location.code,
+              customLabel: location.customLabel,
+              categoryName: category?.name || 'Bilinmiyor'
+            };
+          }
+        }
+      }
+      
+      res.json({
+        ...issue,
+        hospitalName: hospital?.name || 'Unknown',
+        reportedByName: reporter ? `${reporter.firstName || ''} ${reporter.lastName || reporter.username}`.trim() : 'Unknown',
+        locationInfo
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.patch("/api/issues/:id/resolve", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;

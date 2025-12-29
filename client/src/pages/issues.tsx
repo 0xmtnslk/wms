@@ -324,7 +324,7 @@ export default function IssuesPage() {
                 <div 
                   key={issue.id}
                   className="flex items-start gap-4 p-4 rounded-md bg-muted/50 hover-elevate cursor-pointer"
-                  onClick={() => setSelectedIssue(issue)}
+                  onClick={() => navigate(`/issue/${issue.id}`)}
                   data-testid={`issue-row-${issue.id}`}
                 >
                   <div className={`p-2 rounded-md ${issue.isResolved ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
@@ -363,9 +363,7 @@ export default function IssuesPage() {
                       )}
                     </div>
                   </div>
-                  <Button variant="ghost" size="icon">
-                    <Eye className="h-4 w-4" />
-                  </Button>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
                 </div>
               ))}
             </div>

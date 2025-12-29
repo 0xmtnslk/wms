@@ -17,6 +17,7 @@ import AnalyticsPage from "@/pages/analytics";
 import DetailedAnalyticsPage from "@/pages/detailed-analytics";
 import SettingsPage from "@/pages/settings";
 import IssuesPage from "@/pages/issues";
+import IssueDetailPage from "@/pages/issue-detail";
 import CollectorPage from "@/pages/collector";
 import ReportsPage from "@/pages/reports";
 
@@ -31,6 +32,7 @@ function AuthenticatedRouter() {
       <Route path="/settings" component={SettingsPage} />
       <Route path="/issues" component={IssuesPage} />
       <Route path="/issues/:hospitalId" component={IssuesPage} />
+      <Route path="/issue/:id" component={IssueDetailPage} />
       <Route path="/collector" component={CollectorPage} />
       <Route component={NotFound} />
     </Switch>

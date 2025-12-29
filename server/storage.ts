@@ -58,6 +58,7 @@ export interface IStorage {
   updateWasteCollection(id: string, updates: Partial<WasteCollection>): Promise<WasteCollection | undefined>;
   
   getIssues(hospitalId?: string): Promise<Issue[]>;
+  getIssueById(id: string): Promise<Issue | undefined>;
   createIssue(issue: InsertIssue): Promise<Issue>;
   updateIssue(id: string, updates: Partial<Issue>): Promise<Issue | undefined>;
   
@@ -388,6 +389,11 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(issues.reportedAt));
     }
     return db.select().from(issues).orderBy(desc(issues.reportedAt));
+  }
+
+  async getIssueById(id: string): Promise<Issue | undefined> {
+    const [issue] = await db.select().from(issues).where(eq(issues.id, id));
+    return issue || undefined;
   }
 
   async createIssue(issue: InsertIssue): Promise<Issue> {
