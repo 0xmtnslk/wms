@@ -77,7 +77,7 @@ export default function IssueDetailPage() {
     }
   });
 
-  const handleSendEmail = () => {
+  const handleSendEmail = async () => {
     if (!issue) return;
 
     const locationText = issue.locationInfo 
@@ -96,123 +96,97 @@ export default function IssueDetailPage() {
       : issue.category === 'technical' ? '#3b82f6' : '#64748b';
 
     const htmlBody = `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <style>
-    body { font-family: 'Segoe UI', Arial, sans-serif; background: #f8fafc; margin: 0; padding: 20px; }
-    .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
-    .header { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 24px; }
-    .header h1 { margin: 0 0 8px 0; font-size: 20px; }
-    .header p { margin: 0; opacity: 0.8; font-size: 14px; }
-    .status { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: ${statusColor}; color: white; }
-    .content { padding: 24px; }
-    .section { margin-bottom: 20px; }
-    .section-title { font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
-    .info-grid { display: table; width: 100%; }
-    .info-row { display: table-row; }
-    .info-label { display: table-cell; padding: 8px 16px 8px 0; color: #64748b; font-size: 14px; width: 120px; }
-    .info-value { display: table-cell; padding: 8px 0; font-size: 14px; color: #1e293b; }
-    .category-badge { display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; background: ${categoryColor}20; color: ${categoryColor}; border: 1px solid ${categoryColor}40; }
-    .description { background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #3b82f6; }
-    .description p { margin: 0; font-size: 14px; line-height: 1.6; color: #334155; white-space: pre-wrap; }
-    .photo-section { margin-top: 20px; }
-    .photo-section img { max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0; }
-    .footer { background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>Uygunsuzluk Bildirimi</h1>
-      <p>${issue.hospitalName}</p>
-    </div>
-    <div class="content">
-      <div class="section">
-        <div class="info-grid">
-          <div class="info-row">
-            <div class="info-label">Durum</div>
-            <div class="info-value"><span class="status">${statusText}</span></div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Mahal</div>
-            <div class="info-value"><strong>${locationText}</strong></div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Etiket Kodu</div>
-            <div class="info-value"><code style="background:#e2e8f0;padding:2px 8px;border-radius:4px;font-family:monospace;">${issue.tagCode || 'Belirtilmemis'}</code></div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Kategori</div>
-            <div class="info-value"><span class="category-badge">${categoryLabels[issue.category] || issue.category}</span></div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Bildiren</div>
-            <div class="info-value">${issue.reportedByName}</div>
-          </div>
-          <div class="info-row">
-            <div class="info-label">Tarih</div>
-            <div class="info-value">${reportDate}</div>
-          </div>
-        </div>
-      </div>
-      
-      <div class="section">
-        <div class="section-title">Aciklama</div>
-        <div class="description">
-          <p>${issue.description}</p>
-        </div>
-      </div>
-      
-      ${issue.photoUrl ? `
-      <div class="section photo-section">
-        <div class="section-title">Fotograf</div>
-        <img src="${issue.photoUrl}" alt="Uygunsuzluk Fotografi" />
-      </div>
-      ` : ''}
-    </div>
-    <div class="footer">
-      Bu mail WMS - Stratejik Atik Yonetim Merkezi tarafindan olusturulmustur.
-    </div>
+<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+  <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 24px; border-radius: 8px 8px 0 0;">
+    <h1 style="margin: 0 0 8px 0; font-size: 20px;">Uygunsuzluk Bildirimi</h1>
+    <p style="margin: 0; opacity: 0.8; font-size: 14px;">${issue.hospitalName}</p>
   </div>
-</body>
-</html>`.trim();
-
-    const boundary = "----=_NextPart_" + Date.now().toString(16);
-    const emlContent = `MIME-Version: 1.0
-Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=
-Content-Type: multipart/alternative; boundary="${boundary}"
-
---${boundary}
-Content-Type: text/html; charset=UTF-8
-Content-Transfer-Encoding: quoted-printable
-
-${htmlBody.split('').map(char => {
-  const code = char.charCodeAt(0);
-  if (code > 127 || char === '=' || char === '?') {
-    return '=' + code.toString(16).toUpperCase().padStart(2, '0');
-  }
-  return char;
-}).join('').replace(/(.{76})/g, '$1=\r\n')}
-
---${boundary}--
-`;
-
-    const blob = new Blob([emlContent], { type: 'message/rfc822' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `uygunsuzluk_${issue.tagCode || issue.id}.eml`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  <div style="background: #ffffff; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">
+    <table style="width: 100%; border-collapse: collapse;">
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px; width: 120px;">Durum</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
+          <span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: ${statusColor}; color: white;">${statusText}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Mahal</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;"><strong>${locationText}</strong></td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Etiket Kodu</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
+          <code style="background:#e2e8f0; padding:2px 8px; border-radius:4px; font-family:monospace;">${issue.tagCode || 'Belirtilmemis'}</code>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Kategori</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
+          <span style="display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; background: ${categoryColor}20; color: ${categoryColor}; border: 1px solid ${categoryColor}40;">${categoryLabels[issue.category] || issue.category}</span>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Bildiren</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">${issue.reportedByName}</td>
+      </tr>
+      <tr>
+        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Tarih</td>
+        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">${reportDate}</td>
+      </tr>
+    </table>
     
-    toast({ 
-      title: "Mail sablonu indirildi", 
-      description: "Dosyayi cift tiklayarak Outlook'ta acabilirsiniz" 
-    });
+    <div style="margin-top: 20px;">
+      <div style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Aciklama</div>
+      <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #3b82f6;">
+        <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #334155; white-space: pre-wrap;">${issue.description}</p>
+      </div>
+    </div>
+    
+    ${issue.photoUrl ? `
+    <div style="margin-top: 20px;">
+      <div style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Fotograf</div>
+      <img src="${issue.photoUrl}" alt="Uygunsuzluk Fotografi" style="max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0;" />
+    </div>
+    ` : ''}
+  </div>
+  <div style="background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; border-top: none;">
+    Bu mail WMS - Stratejik Atik Yonetim Merkezi tarafindan olusturulmustur.
+  </div>
+</div>`.trim();
+
+    try {
+      const blob = new Blob([htmlBody], { type: 'text/html' });
+      const clipboardItem = new ClipboardItem({ 'text/html': blob });
+      await navigator.clipboard.write([clipboardItem]);
+      
+      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}`;
+      
+      toast({ 
+        title: "Icerik panoya kopyalandi", 
+        description: "Outlook acildiginda Ctrl+V ile yapistiriniz" 
+      });
+    } catch (err) {
+      const textContent = `
+UYGUNSUZLUK BILDIRIMI
+=====================
+Hastane: ${issue.hospitalName}
+Mahal: ${locationText}
+Etiket Kodu: ${issue.tagCode || 'Belirtilmemis'}
+Kategori: ${categoryLabels[issue.category] || issue.category}
+Bildiren: ${issue.reportedByName}
+Tarih: ${reportDate}
+Durum: ${statusText}
+
+ACIKLAMA
+--------
+${issue.description}
+${issue.photoUrl ? '\n[Fotograf sistemde mevcuttur]' : ''}
+---
+WMS - Stratejik Atik Yonetim Merkezi
+      `.trim();
+      
+      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textContent)}`;
+    }
   };
 
   if (isLoading) {
