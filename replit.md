@@ -130,6 +130,9 @@ Gelecekte "Pusula" HBYS sistemine entegre edilecek. Şimdilik günlük manuel ve
 ## Önemli Notlar
 
 - Session-based authentication kullanılır (JWT değil)
+- **PM2 cluster mode için PostgreSQL session store kullanılır** (`connect-pg-simple`)
+- `user_sessions` tablosu manuel olarak oluşturulmalıdır (README.md'ye bakın)
+- HTTPS arkasında (Nginx + SSL) `trust proxy` ve `sameSite: "lax"` cookie ayarları gereklidir
 - Şifreler bcrypt ile hashlenir (SALT_ROUNDS = 10)
 - Dark mode varsayılan olarak aktiftir
 - Tüm UI Türkçe dilindedir

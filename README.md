@@ -30,7 +30,19 @@ npm install
 # DATABASE_URL, SESSION_SECRET, NODE_ENV, PORT ayarla
 export $(grep -v '^#' .env | xargs)
 
-# 7. Build ve başlat
+# 7. Session tablosu oluştur (PM2 cluster için zorunlu)
+sudo -u postgres psql -d wmsdb -c "
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL COLLATE \"default\",
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL,
+  CONSTRAINT session_pkey PRIMARY KEY (sid)
+);
+CREATE INDEX IF NOT EXISTS IDX_session_expire ON user_sessions (expire);
+GRANT ALL PRIVILEGES ON TABLE user_sessions TO wmsuser;
+"
+
+# 8. Build ve başlat
 npm run db:push && npm run build && npm run start  # Test
 pm2 start ecosystem.config.cjs && pm2 save && pm2 startup
 ```
@@ -292,6 +304,29 @@ Bu komut tüm tabloları oluşturacaktır:
 - waste_types, location_categories, locations
 - operational_coefficients
 - waste_collections, issues, sync_logs
+
+### Session Tablosu Oluşturma (PM2 Cluster Mode İçin Zorunlu)
+
+PM2 cluster modunda birden fazla instance çalıştığında, session'ların paylaşılabilmesi için PostgreSQL tabanlı session storage kullanılır. Bu tablo **manuel olarak oluşturulmalıdır**:
+
+```bash
+sudo -u postgres psql -d wmsdb -c "
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL COLLATE \"default\",
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL,
+  CONSTRAINT session_pkey PRIMARY KEY (sid)
+);
+CREATE INDEX IF NOT EXISTS IDX_session_expire ON user_sessions (expire);
+GRANT ALL PRIVILEGES ON TABLE user_sessions TO wmsuser;
+"
+```
+
+**Neden Gerekli?**
+- PM2 cluster modunda her instance ayrı bellek kullanır
+- Varsayılan MemoryStore session'ları instance'lar arasında paylaşamaz
+- PostgreSQL session store ile session'lar tüm instance'lar tarafından erişilebilir
+- HTTPS arkasında (Nginx + SSL) cookie güvenlik ayarları düzgün çalışır
 
 ---
 
@@ -648,6 +683,37 @@ free -h
 pm2 monit
 ```
 
+### Session / Giriş Yapamama Sorunları
+
+Giriş başarılı olmasına rağmen hemen çıkış yapılıyorsa (401 hatası):
+
+```bash
+# 1. Session tablosunun varlığını kontrol et
+PGPASSWORD="SIFRENIZ" psql -U wmsuser -d wmsdb -h localhost -c "SELECT * FROM user_sessions LIMIT 5;"
+
+# 2. Tablo yoksa oluştur
+sudo -u postgres psql -d wmsdb -c "
+CREATE TABLE IF NOT EXISTS user_sessions (
+  sid VARCHAR NOT NULL COLLATE \"default\",
+  sess JSON NOT NULL,
+  expire TIMESTAMP(6) NOT NULL,
+  CONSTRAINT session_pkey PRIMARY KEY (sid)
+);
+CREATE INDEX IF NOT EXISTS IDX_session_expire ON user_sessions (expire);
+GRANT ALL PRIVILEGES ON TABLE user_sessions TO wmsuser;
+"
+
+# 3. PM2'yi yeniden başlat
+pm2 restart wms
+
+# 4. Nginx X-Forwarded-Proto header gönderdiğinden emin ol
+# /etc/nginx/sites-available/wms içinde şu satır olmalı:
+# proxy_set_header X-Forwarded-Proto $scheme;
+nginx -t && systemctl reload nginx
+```
+
+**Önemli:** PM2 cluster modunda birden fazla instance çalıştırıyorsanız, PostgreSQL session tablosu zorunludur. Aksi takdirde her instance kendi bellek tabanlı session'ını kullanır ve kullanıcılar farklı instance'lara yönlendirildiğinde oturum kaybı yaşanır.
+
 ---
 
 ## Varsayılan Kullanıcılar
@@ -744,6 +810,7 @@ Canlıya almadan önce aşağıdakileri kontrol edin:
 - [ ] .env dosyası 600 izinlerinde
 - [ ] Yedekleme scripti çalışıyor
 - [ ] Log rotasyonu ayarlandı
+- [ ] user_sessions tablosu oluşturuldu (PM2 cluster mode için)
 
 ---
 
