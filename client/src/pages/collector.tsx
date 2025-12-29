@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { 
   QrCode, Scale, AlertTriangle, ArrowLeft, ScanLine, 
   Printer, CheckCircle2, Keyboard, Save, Camera,
-  MapPin, Loader2, RefreshCcw
+  MapPin, Loader2, RefreshCcw, Search, Mic, MicOff, X, ImagePlus
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,28 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth, useCurrentHospital } from "@/lib/auth-context";
 import { WASTE_TYPES_CONFIG, WasteTypeSelectCard } from "@/components/waste-type-badge";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { QRCodeSVG } from "qrcode.react";
+import { QRScanner } from "@/components/qr-scanner";
+
+function maskName(fullName: string): string {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(/\s+/);
+  return parts.map(part => {
+    if (part.length <= 1) return part;
+    if (part.length === 2) return part[0] + "*";
+    return part[0] + "*".repeat(part.length - 2) + part[part.length - 1];
+  }).join(" ");
+}
+
+function formatDateTime(date: Date): string {
+  return date.toLocaleString("tr-TR", {
+    day: "2-digit",
+    month: "2-digit", 
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
 
 type CollectorView = "menu" | "collect" | "weigh" | "issue";
 
@@ -92,13 +114,22 @@ function CollectView({ onBack }: { onBack: () => void }) {
   
   const [step, setStep] = useState<"scan" | "type" | "confirm">("scan");
   const [locationCode, setLocationCode] = useState("");
+  const [locationSearch, setLocationSearch] = useState("");
   const [selectedWasteType, setSelectedWasteType] = useState<string | null>(null);
   const [tagCode, setTagCode] = useState("");
+  const [tagDateTime, setTagDateTime] = useState<Date | null>(null);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const [isPrinted, setIsPrinted] = useState(false);
 
   const { data: locations } = useQuery<Location[]>({
     queryKey: ["/api/settings/locations", currentHospital?.id],
     enabled: !!currentHospital?.id,
   });
+
+  const filteredLocations = locations?.filter(loc => 
+    loc.code.toLowerCase().includes(locationSearch.toLowerCase()) ||
+    loc.customLabel?.toLowerCase().includes(locationSearch.toLowerCase())
+  ) || [];
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -113,18 +144,21 @@ function CollectView({ onBack }: { onBack: () => void }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
       toast({
-        title: "Kayıt oluşturuldu",
+        title: "Kayit olusturuldu",
         description: `Etiket: ${tagCode}`,
       });
       setStep("scan");
       setLocationCode("");
+      setLocationSearch("");
       setSelectedWasteType(null);
       setTagCode("");
+      setTagDateTime(null);
+      setIsPrinted(false);
     },
     onError: () => {
       toast({
         title: "Hata",
-        description: "Kayıt oluşturulamadı",
+        description: "Kayit olusturulamadi",
         variant: "destructive",
       });
     }
@@ -133,6 +167,43 @@ function CollectView({ onBack }: { onBack: () => void }) {
   const generateTagCode = () => {
     const code = `TAG-${Date.now().toString(36).toUpperCase()}`;
     setTagCode(code);
+    setTagDateTime(new Date());
+    setIsPrinted(false);
+  };
+
+  const handleQRScan = (scannedCode: string) => {
+    const matchedLocation = locations?.find(loc => 
+      loc.code.toUpperCase() === scannedCode.toUpperCase()
+    );
+    if (matchedLocation) {
+      setLocationCode(matchedLocation.code);
+      toast({
+        title: "Lokasyon bulundu",
+        description: matchedLocation.code,
+      });
+    } else {
+      toast({
+        title: "Lokasyon bulunamadi",
+        description: `QR: ${scannedCode}`,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+    setIsPrinted(true);
+    toast({
+      title: "Yazdir",
+      description: "Etiket yaziciya gonderildi",
+    });
+  };
+
+  const getUserFullName = () => {
+    if (user?.firstName && user?.lastName) {
+      return `${user.firstName} ${user.lastName}`;
+    }
+    return user?.username || "";
   };
 
   return (
@@ -156,9 +227,14 @@ function CollectView({ onBack }: { onBack: () => void }) {
               <CardTitle className="text-sm">QR Kod Tara veya Manuel Gir</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <Button className="w-full h-24 gap-2" variant="outline" data-testid="button-scan-qr">
-                <ScanLine className="h-6 w-6" />
-                QR Kod Tara
+              <Button 
+                className="w-full h-24 gap-2" 
+                variant="outline" 
+                onClick={() => setShowQRScanner(true)}
+                data-testid="button-scan-qr"
+              >
+                <Camera className="h-6 w-6" />
+                Kamera ile QR Tara
               </Button>
               
               <div className="relative">
@@ -170,18 +246,36 @@ function CollectView({ onBack }: { onBack: () => void }) {
                 </div>
               </div>
 
-              <Select value={locationCode} onValueChange={setLocationCode}>
-                <SelectTrigger data-testid="select-location">
-                  <SelectValue placeholder="Lokasyon seçin..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {locations?.map((loc) => (
-                    <SelectItem key={loc.id} value={loc.code}>
-                      {loc.code} {loc.customLabel && `(${loc.customLabel})`}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Lokasyon ara..."
+                    value={locationSearch}
+                    onChange={(e) => setLocationSearch(e.target.value)}
+                    className="pl-10"
+                    data-testid="input-location-search"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto space-y-1 border rounded-md p-2">
+                  {filteredLocations.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-2">Lokasyon bulunamadi</p>
+                  ) : (
+                    filteredLocations.map((loc) => (
+                      <Button
+                        key={loc.id}
+                        variant={locationCode === loc.code ? "default" : "ghost"}
+                        className="w-full justify-start font-mono text-sm"
+                        onClick={() => setLocationCode(loc.code)}
+                        data-testid={`button-location-${loc.code}`}
+                      >
+                        <MapPin className="h-3 w-3 mr-2" />
+                        {loc.code} {loc.customLabel && <span className="text-muted-foreground ml-1">({loc.customLabel})</span>}
+                      </Button>
+                    ))
+                  )}
+                </div>
+              </div>
             </CardContent>
           </Card>
 
@@ -194,6 +288,13 @@ function CollectView({ onBack }: { onBack: () => void }) {
           >
             Devam Et
           </Button>
+
+          <QRScanner 
+            open={showQRScanner} 
+            onClose={() => setShowQRScanner(false)}
+            onScan={handleQRScan}
+            title="Lokasyon QR Tara"
+          />
         </div>
       )}
 
@@ -239,36 +340,54 @@ function CollectView({ onBack }: { onBack: () => void }) {
         <div className="flex-1 flex flex-col space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle className="text-sm">Etiket Önizleme</CardTitle>
+              <CardTitle className="text-sm">Etiket Onizleme</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="p-4 rounded-md border-2 border-dashed border-border bg-background text-center space-y-2">
-                <div className="text-xs text-muted-foreground">ISGMed Atık Yönetimi</div>
-                <div className="text-2xl font-mono font-bold">{tagCode}</div>
+              <div className="p-4 rounded-md border-2 border-dashed border-border bg-white dark:bg-zinc-900 text-center space-y-2 print:border-solid print:border-black">
+                <div className="text-xs font-semibold text-foreground">{currentHospital?.name || "Hastane"}</div>
+                <div className="text-xl font-mono font-bold">{tagCode}</div>
                 <div className="flex justify-center gap-2">
                   <Badge className={WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.color}>
                     {WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.label}
                   </Badge>
                 </div>
-                <div className="text-xs text-muted-foreground">{locationCode}</div>
-                <div className="pt-2">
-                  <div className="h-8 bg-foreground/10 rounded flex items-center justify-center text-xs text-muted-foreground">
-                    [Barkod Alanı]
-                  </div>
+                <div className="text-xs text-muted-foreground font-mono">{locationCode}</div>
+                <div className="text-xs text-muted-foreground">
+                  {maskName(getUserFullName())}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {tagDateTime ? formatDateTime(tagDateTime) : formatDateTime(new Date())}
+                </div>
+                <div className="pt-2 flex justify-center">
+                  <QRCodeSVG 
+                    value={tagCode} 
+                    size={80} 
+                    level="M"
+                    className="print:block"
+                  />
                 </div>
               </div>
             </CardContent>
           </Card>
 
           <div className="flex gap-2">
-            <Button variant="outline" size="icon">
+            <Button 
+              variant={isPrinted ? "secondary" : "default"}
+              className="flex-1 gap-2"
+              onClick={handlePrint}
+              data-testid="button-print"
+            >
               <Printer className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" onClick={() => generateTagCode()}>
-              <RefreshCcw className="h-4 w-4 mr-2" />
-              Yeni Kod
+              {isPrinted ? "Tekrar Yazdir" : "Yazdir"}
             </Button>
           </div>
+
+          {isPrinted && (
+            <p className="text-sm text-emerald-500 text-center flex items-center justify-center gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Etiket yazdirildi
+            </p>
+          )}
 
           <div className="flex gap-2 mt-auto">
             <Button variant="outline" onClick={() => setStep("type")} data-testid="button-prev-step">
@@ -298,8 +417,10 @@ function CollectView({ onBack }: { onBack: () => void }) {
 function WeighView({ onBack }: { onBack: () => void }) {
   const { toast } = useToast();
   const [tagCode, setTagCode] = useState("");
+  const [tagSearch, setTagSearch] = useState("");
   const [weight, setWeight] = useState("");
   const [isManual, setIsManual] = useState(true);
+  const [showQRScanner, setShowQRScanner] = useState(false);
 
   const weighMutation = useMutation({
     mutationFn: async () => {
@@ -312,20 +433,29 @@ function WeighView({ onBack }: { onBack: () => void }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard/summary"] });
       toast({
-        title: "Tartım kaydedildi",
+        title: "Tartim kaydedildi",
         description: `${weight} kg - ${tagCode}`,
       });
       setTagCode("");
+      setTagSearch("");
       setWeight("");
     },
     onError: () => {
       toast({
         title: "Hata",
-        description: "Etiket bulunamadı veya tartım kaydedilemedi",
+        description: "Etiket bulunamadi veya tartim kaydedilemedi",
         variant: "destructive",
       });
     }
   });
+
+  const handleQRScan = (scannedCode: string) => {
+    setTagCode(scannedCode.toUpperCase());
+    toast({
+      title: "Etiket bulundu",
+      description: scannedCode,
+    });
+  };
 
   return (
     <div className="flex-1 flex flex-col p-4 animate-in fade-in duration-300">
@@ -334,7 +464,7 @@ function WeighView({ onBack }: { onBack: () => void }) {
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
-          <h2 className="text-xl font-bold">Kantar / Tartım</h2>
+          <h2 className="text-xl font-bold">Kantar / Tartim</h2>
           <p className="text-sm text-muted-foreground">Etiket barkodunu okutun</p>
         </div>
       </div>
@@ -345,21 +475,24 @@ function WeighView({ onBack }: { onBack: () => void }) {
             <div className="space-y-2">
               <Label>Etiket Kodu</Label>
               <div className="flex gap-2">
-                <Input
-                  placeholder="TAG-XXXXXX"
-                  value={tagCode}
-                  onChange={(e) => setTagCode(e.target.value.toUpperCase())}
-                  className="font-mono"
-                  data-testid="input-tag-code"
-                />
-                <Button variant="outline" size="icon">
-                  <ScanLine className="h-4 w-4" />
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="TAG-XXXXXX ara veya gir..."
+                    value={tagCode}
+                    onChange={(e) => setTagCode(e.target.value.toUpperCase())}
+                    className="font-mono pl-10"
+                    data-testid="input-tag-code"
+                  />
+                </div>
+                <Button variant="outline" size="icon" onClick={() => setShowQRScanner(true)}>
+                  <Camera className="h-4 w-4" />
                 </Button>
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Ağırlık (kg)</Label>
+              <Label>Agirlik (kg)</Label>
               <Input
                 type="number"
                 step="0.001"
@@ -398,9 +531,16 @@ function WeighView({ onBack }: { onBack: () => void }) {
           ) : (
             <Save className="h-4 w-4 mr-2" />
           )}
-          Tartımı Kaydet
+          Tartimi Kaydet
         </Button>
       </div>
+
+      <QRScanner 
+        open={showQRScanner} 
+        onClose={() => setShowQRScanner(false)}
+        onScan={handleQRScan}
+        title="Etiket QR Tara"
+      />
     </div>
   );
 }
@@ -413,6 +553,11 @@ function IssueView({ onBack }: { onBack: () => void }) {
   const [category, setCategory] = useState("");
   const [tagCode, setTagCode] = useState("");
   const [description, setDescription] = useState("");
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [isRecording, setIsRecording] = useState(false);
+  const [showQRScanner, setShowQRScanner] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   const issueMutation = useMutation({
     mutationFn: async () => {
@@ -421,6 +566,7 @@ function IssueView({ onBack }: { onBack: () => void }) {
         category,
         tagCode: tagCode || null,
         description,
+        photoUrls: photos.length > 0 ? photos : null,
       });
       return response.json();
     },
@@ -436,11 +582,83 @@ function IssueView({ onBack }: { onBack: () => void }) {
     onError: () => {
       toast({
         title: "Hata",
-        description: "Bildirim gönderilemedi",
+        description: "Bildirim gonderilemedi",
         variant: "destructive",
       });
     }
   });
+
+  const handleQRScan = (scannedCode: string) => {
+    setTagCode(scannedCode.toUpperCase());
+    toast({
+      title: "Etiket bulundu",
+      description: scannedCode,
+    });
+  };
+
+  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      Array.from(files).forEach(file => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          setPhotos(prev => [...prev, reader.result as string]);
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+  };
+
+  const removePhoto = (index: number) => {
+    setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const toggleVoiceRecording = () => {
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      toast({
+        title: "Desteklenmiyor",
+        description: "Tarayiciniz ses tanima desteklemiyor",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (isRecording) {
+      recognitionRef.current?.stop();
+      setIsRecording(false);
+    } else {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'tr-TR';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcript += event.results[i][0].transcript;
+        }
+        setDescription(prev => prev + ' ' + transcript);
+      };
+
+      recognition.onerror = () => {
+        setIsRecording(false);
+        toast({
+          title: "Ses Hatasi",
+          description: "Ses tanima basarisiz oldu",
+          variant: "destructive",
+        });
+      };
+
+      recognition.onend = () => {
+        setIsRecording(false);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+      setIsRecording(true);
+    }
+  };
 
   return (
     <div className="flex-1 flex flex-col p-4 animate-in fade-in duration-300">
@@ -450,7 +668,7 @@ function IssueView({ onBack }: { onBack: () => void }) {
         </Button>
         <div>
           <h2 className="text-xl font-bold">Uygunsuzluk Bildirimi</h2>
-          <p className="text-sm text-muted-foreground">Sorunu tanımlayın</p>
+          <p className="text-sm text-muted-foreground">Sorunu tanimlayin</p>
         </div>
       </div>
 
@@ -461,43 +679,111 @@ function IssueView({ onBack }: { onBack: () => void }) {
               <Label>Kategori</Label>
               <Select value={category} onValueChange={setCategory}>
                 <SelectTrigger data-testid="select-issue-category">
-                  <SelectValue placeholder="Seçin..." />
+                  <SelectValue placeholder="Secin..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="segregation">Ayrıştırma Hatası</SelectItem>
+                  <SelectItem value="segregation">Ayristirma Hatasi</SelectItem>
                   <SelectItem value="non_compliance">Uygunsuzluk</SelectItem>
                   <SelectItem value="technical">Teknik Sorun</SelectItem>
-                  <SelectItem value="other">Diğer</SelectItem>
+                  <SelectItem value="other">Diger</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label>Etiket Kodu (Opsiyonel)</Label>
-              <Input
-                placeholder="TAG-XXXXXX"
-                value={tagCode}
-                onChange={(e) => setTagCode(e.target.value.toUpperCase())}
-                className="font-mono"
-                data-testid="input-issue-tag"
-              />
+              <div className="flex gap-2">
+                <div className="flex-1 relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="TAG-XXXXXX ara veya gir..."
+                    value={tagCode}
+                    onChange={(e) => setTagCode(e.target.value.toUpperCase())}
+                    className="font-mono pl-10"
+                    data-testid="input-issue-tag"
+                  />
+                </div>
+                <Button variant="outline" size="icon" onClick={() => setShowQRScanner(true)}>
+                  <Camera className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
 
             <div className="space-y-2">
-              <Label>Açıklama</Label>
+              <div className="flex items-center justify-between">
+                <Label>Aciklama</Label>
+                <Button 
+                  variant={isRecording ? "destructive" : "ghost"} 
+                  size="sm"
+                  onClick={toggleVoiceRecording}
+                  className="gap-1"
+                >
+                  {isRecording ? (
+                    <>
+                      <MicOff className="h-3 w-3" />
+                      Durdur
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="h-3 w-3" />
+                      Sesli Gir
+                    </>
+                  )}
+                </Button>
+              </div>
               <Textarea
-                placeholder="Sorunu detaylı olarak açıklayın..."
+                placeholder="Sorunu detayli olarak aciklayin..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={4}
                 data-testid="textarea-issue-description"
               />
+              {isRecording && (
+                <p className="text-xs text-rose-500 flex items-center gap-1 animate-pulse">
+                  <span className="w-2 h-2 bg-rose-500 rounded-full" />
+                  Dinleniyor...
+                </p>
+              )}
             </div>
 
-            <Button variant="outline" className="w-full gap-2">
-              <Camera className="h-4 w-4" />
-              Fotoğraf Ekle
-            </Button>
+            <div className="space-y-2">
+              <Label>Fotograflar</Label>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handlePhotoUpload}
+              />
+              
+              {photos.length > 0 && (
+                <div className="grid grid-cols-3 gap-2">
+                  {photos.map((photo, idx) => (
+                    <div key={idx} className="relative aspect-square rounded-md overflow-hidden border">
+                      <img src={photo} alt={`Photo ${idx + 1}`} className="w-full h-full object-cover" />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute top-1 right-1 h-6 w-6"
+                        onClick={() => removePhoto(idx)}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              
+              <Button 
+                variant="outline" 
+                className="w-full gap-2"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <ImagePlus className="h-4 w-4" />
+                Fotograf Ekle ({photos.length}/5)
+              </Button>
+            </div>
           </CardContent>
         </Card>
 
@@ -516,6 +802,13 @@ function IssueView({ onBack }: { onBack: () => void }) {
           Bildir
         </Button>
       </div>
+
+      <QRScanner 
+        open={showQRScanner} 
+        onClose={() => setShowQRScanner(false)}
+        onScan={handleQRScan}
+        title="Etiket QR Tara"
+      />
     </div>
   );
 }
