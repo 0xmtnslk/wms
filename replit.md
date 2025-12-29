@@ -10,13 +10,17 @@ Bu sistem, hastane atıklarının toplanması, tartılması ve analizini yönetm
 - **HOSPITAL_MANAGER**: Kendi hastanesini görür ve yönetir
 - **COLLECTOR**: Saha atık toplama işlemlerini yapar
 
-## Test Kullanıcıları
+## Kullanıcılar
+
+Sistemde 33 hastane ve her biri için manager/collector kullanıcısı tanımlıdır.
 
 | Kullanıcı Adı | Şifre | Rol |
 |---------------|-------|-----|
-| hq.admin | 123456 | HQ + Manager + Collector |
-| manager.h1 | 123456 | Manager + Collector (H1) |
-| collector.h1 | 123456 | Collector (H1) |
+| hq.admin | 123456 | HQ + Manager + Collector (tüm hastaneler) |
+| manager.h1 - manager.h33 | 123456 | Manager + Collector (ilgili hastane) |
+| collector.h1 - collector.h33 | 123456 | Collector (ilgili hastane) |
+
+**Not:** Production ortamında şifreleri mutlaka değiştirin!
 
 ## Atık Türleri
 
