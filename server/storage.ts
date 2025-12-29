@@ -1009,7 +1009,13 @@ export class DatabaseStorage implements IStorage {
     const categoriesArray = Object.values(categoryBreakdown).filter(c => c.weight > 0);
     const trendArray = Object.values(monthlyTrend).sort((a, b) => a.month.localeCompare(b.month));
 
-    const tableData = allCollections.map(c => {
+    const sortedCollections = [...allCollections].sort((a, b) => {
+      const dateA = a.collectedAt ? new Date(a.collectedAt).getTime() : 0;
+      const dateB = b.collectedAt ? new Date(b.collectedAt).getTime() : 0;
+      return dateB - dateA;
+    });
+
+    const tableData = sortedCollections.map(c => {
       const wt = allWasteTypes.find(w => w.id === c.wasteTypeId);
       const h = allHospitals.find(h => h.id === c.hospitalId);
       const loc = allLocations.find(l => l.id === c.locationId);
