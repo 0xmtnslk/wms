@@ -142,6 +142,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/dashboard/summary/:hospitalId", requireAuth, async (req, res) => {
+    try {
+      const hospitalId = req.params.hospitalId;
+      const summary = await storage.getDashboardSummary(hospitalId);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   app.get("/api/analytics", requireAuth, async (req, res) => {
     try {
       const hospitalId = req.query.hospitalId as string | undefined;
