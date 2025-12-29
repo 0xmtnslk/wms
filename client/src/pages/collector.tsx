@@ -339,31 +339,32 @@ function CollectView({ onBack }: { onBack: () => void }) {
       {step === "confirm" && (
         <div className="flex-1 flex flex-col space-y-4">
           <Card className="print-label">
-            <CardHeader>
-              <CardTitle className="text-sm">Etiket Onizleme</CardTitle>
+            <CardHeader className="print-label-header">
+              <CardTitle className="text-sm">Etiket Onizleme (70x50mm)</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="p-4 rounded-md border-2 border-dashed border-border bg-white dark:bg-zinc-900 text-center space-y-2 print:border-solid print:border-black">
-                <div className="text-xs font-semibold text-foreground">{currentHospital?.name || "Hastane"}</div>
-                <div className="text-xl font-mono font-bold">{tagCode}</div>
-                <div className="flex justify-center gap-2">
-                  <Badge className={WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.color}>
-                    {WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.label}
-                  </Badge>
+            <CardContent className="print-label-content">
+              <div className="p-3 rounded-md border-2 border-dashed border-border bg-white dark:bg-zinc-900 flex items-center gap-3 print:border-none print:p-0">
+                <div className="print-label-info flex-1 space-y-1 text-left">
+                  <div className="text-[10px] font-semibold text-foreground print:text-[8pt] print:text-black">{currentHospital?.name || "Hastane"}</div>
+                  <div className="text-base font-mono font-bold print:text-[12pt] print:text-black">{tagCode}</div>
+                  <div className="flex gap-1">
+                    <Badge className={`text-[10px] print:text-[7pt] print:bg-transparent print:text-black print:border print:border-black ${WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.color}`}>
+                      {WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.label}
+                    </Badge>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono print:text-[7pt] print:text-black">{locationCode}</div>
+                  <div className="text-[10px] text-muted-foreground print:text-[7pt] print:text-black">
+                    {maskName(getUserFullName())}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground print:text-[7pt] print:text-black">
+                    {tagDateTime ? formatDateTime(tagDateTime) : formatDateTime(new Date())}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground font-mono">{locationCode}</div>
-                <div className="text-xs text-muted-foreground">
-                  {maskName(getUserFullName())}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {tagDateTime ? formatDateTime(tagDateTime) : formatDateTime(new Date())}
-                </div>
-                <div className="pt-2 flex justify-center">
+                <div className="print-label-qr flex-shrink-0">
                   <QRCodeSVG 
                     value={tagCode} 
-                    size={80} 
+                    size={72} 
                     level="M"
-                    className="print:block"
                   />
                 </div>
               </div>
