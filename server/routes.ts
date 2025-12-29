@@ -572,7 +572,7 @@ export async function registerRoutes(
 
   app.post("/api/issues", requireAuth, async (req, res) => {
     try {
-      const { hospitalId, category, tagCode, description } = req.body;
+      const { hospitalId, category, tagCode, locationCode, description, photoUrls } = req.body;
 
       let wasteCollectionId = null;
       if (tagCode) {
@@ -580,18 +580,29 @@ export async function registerRoutes(
         wasteCollectionId = collection?.id || null;
       }
 
+      let locationId = null;
+      if (locationCode && hospitalId) {
+        const location = await storage.getLocationByCode(hospitalId, locationCode);
+        locationId = location?.id || null;
+      }
+
+      const photoUrl = photoUrls && photoUrls.length > 0 ? photoUrls[0] : null;
+
       const issue = await storage.createIssue({
         hospitalId,
         wasteCollectionId,
+        locationId,
         tagCode: tagCode || null,
         category,
         description,
+        photoUrl,
         reportedByUserId: req.session.userId,
         isResolved: false
       });
 
       res.json(issue);
     } catch (error) {
+      console.error("Error creating issue:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
@@ -610,8 +621,24 @@ export async function registerRoutes(
       const reporter = issue.reportedByUserId ? await storage.getUser(issue.reportedByUserId) : null;
       
       let locationInfo = null;
-      if (issue.wasteCollectionId) {
-        const collection = await storage.getWasteCollectionByTag(issue.tagCode || '');
+      
+      // First check if issue has direct locationId
+      if (issue.locationId) {
+        const allLocations = await storage.getLocations(issue.hospitalId);
+        const location = allLocations.find(l => l.id === issue.locationId);
+        if (location) {
+          const categories = await storage.getLocationCategories();
+          const category = categories.find(c => c.id === location.categoryId);
+          locationInfo = {
+            code: location.code,
+            customLabel: location.customLabel,
+            categoryName: category?.name || 'Bilinmiyor'
+          };
+        }
+      }
+      // Fallback: check wasteCollection's locationId
+      else if (issue.wasteCollectionId && issue.tagCode) {
+        const collection = await storage.getWasteCollectionByTag(issue.tagCode);
         if (collection?.locationId) {
           const allLocations = await storage.getLocations(issue.hospitalId);
           const location = allLocations.find(l => l.id === collection.locationId);
@@ -634,6 +661,7 @@ export async function registerRoutes(
         locationInfo
       });
     } catch (error) {
+      console.error("Error fetching issue:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

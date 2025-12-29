@@ -120,6 +120,7 @@ export const issues = pgTable("issues", {
   id: varchar("id", { length: 36 }).primaryKey().default(sql`gen_random_uuid()`),
   hospitalId: varchar("hospital_id", { length: 36 }).notNull().references(() => hospitals.id),
   wasteCollectionId: varchar("waste_collection_id", { length: 36 }).references(() => wasteCollections.id),
+  locationId: varchar("location_id", { length: 36 }).references(() => locations.id),
   tagCode: varchar("tag_code", { length: 50 }),
   category: issueCategoryEnum("category").notNull(),
   description: text("description").notNull(),
