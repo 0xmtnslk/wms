@@ -535,7 +535,7 @@ function QRCodeDialog({
     if (!printRef.current) return;
     
     const printContent = printRef.current.innerHTML;
-    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    const printWindow = window.open('', '_blank', 'width=400,height=300');
     
     if (printWindow) {
       printWindow.document.write(`
@@ -544,56 +544,64 @@ function QRCodeDialog({
           <head>
             <title>QR Kod - ${location?.code}</title>
             <style>
+              @page {
+                size: 70mm 50mm;
+                margin: 0;
+              }
+              html, body {
+                margin: 0;
+                padding: 0;
+                width: 70mm;
+                height: 50mm;
+              }
               body {
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
                 display: flex;
                 justify-content: center;
                 align-items: center;
-                min-height: 100vh;
-                margin: 0;
-                padding: 20px;
-                box-sizing: border-box;
               }
               .qr-container {
+                width: 70mm;
+                height: 50mm;
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                justify-content: center;
+                gap: 3mm;
+                padding: 2mm;
+                box-sizing: border-box;
+              }
+              .info-section {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+                gap: 1mm;
                 text-align: center;
-                padding: 24px;
-                border: 2px solid #e5e7eb;
-                border-radius: 12px;
-                max-width: 300px;
               }
               .qr-code {
-                margin: 16px 0;
+                flex-shrink: 0;
               }
               .hospital-name {
-                font-size: 14px;
-                color: #6b7280;
-                margin-bottom: 8px;
+                font-size: 7pt;
+                color: #000;
+                margin: 0;
               }
               .category-name {
-                font-size: 16px;
+                font-size: 9pt;
                 font-weight: 600;
-                margin-bottom: 4px;
+                margin: 0;
               }
               .custom-label {
-                font-size: 14px;
-                color: #374151;
-                margin-bottom: 12px;
+                font-size: 7pt;
+                color: #000;
+                margin: 0;
               }
               .code {
                 font-family: monospace;
-                font-size: 10px;
-                background: #f3f4f6;
-                padding: 8px 12px;
-                border-radius: 6px;
-                word-break: break-all;
-              }
-              @media print {
-                body {
-                  padding: 0;
-                }
-                .qr-container {
-                  border: 1px solid #000;
-                }
+                font-size: 8pt;
+                font-weight: bold;
+                margin: 0;
               }
             </style>
           </head>
@@ -626,24 +634,28 @@ function QRCodeDialog({
           </DialogTitle>
         </DialogHeader>
         
-        <div ref={printRef} className="flex justify-center py-4">
-          <div className="qr-container text-center p-6 border rounded-lg bg-white">
-            <p className="hospital-name text-sm text-muted-foreground mb-2">{hospitalName}</p>
-            <p className="category-name text-base font-semibold">{location.categoryName}</p>
-            {location.customLabel && (
-              <p className="custom-label text-sm text-foreground mb-3">{location.customLabel}</p>
-            )}
-            <div className="qr-code my-4">
-              <QRCodeSVG 
-                value={location.code} 
-                size={180}
-                level="H"
-                includeMargin={true}
-              />
+        <div className="py-4">
+          <p className="text-xs text-muted-foreground text-center mb-2">Onizleme (70x50mm)</p>
+          <div ref={printRef} className="flex justify-center">
+            <div className="qr-container flex items-center justify-center gap-4 p-3 border-2 border-dashed rounded-lg bg-white dark:bg-zinc-900" style={{width: '264px', height: '189px'}}>
+              <div className="info-section text-center space-y-0.5">
+                <p className="hospital-name text-[9px] text-muted-foreground">{hospitalName}</p>
+                <p className="category-name text-[11px] font-semibold text-foreground">{location.categoryName}</p>
+                {location.customLabel && (
+                  <p className="custom-label text-[9px] text-foreground">{location.customLabel}</p>
+                )}
+                <code className="code text-[10px] font-mono font-bold block text-foreground">
+                  {location.code}
+                </code>
+              </div>
+              <div className="qr-code flex-shrink-0">
+                <QRCodeSVG 
+                  value={location.code} 
+                  size={120}
+                  level="H"
+                />
+              </div>
             </div>
-            <code className="code text-xs bg-muted px-3 py-2 rounded block font-mono">
-              {location.code}
-            </code>
           </div>
         </div>
 

@@ -343,27 +343,27 @@ function CollectView({ onBack }: { onBack: () => void }) {
               <CardTitle className="text-sm">Etiket Onizleme (70x50mm)</CardTitle>
             </CardHeader>
             <CardContent className="print-label-content">
-              <div className="p-3 rounded-md border-2 border-dashed border-border bg-white dark:bg-zinc-900 flex items-center gap-3 print:border-none print:p-0">
-                <div className="print-label-info flex-1 space-y-1 text-left">
-                  <div className="text-[10px] font-semibold text-foreground print:text-[8pt] print:text-black">{currentHospital?.name || "Hastane"}</div>
-                  <div className="text-base font-mono font-bold print:text-[12pt] print:text-black">{tagCode}</div>
-                  <div className="flex gap-1">
-                    <Badge className={`text-[10px] print:text-[7pt] print:bg-transparent print:text-black print:border print:border-black ${WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.color}`}>
+              <div className="p-3 rounded-md border-2 border-dashed border-border bg-white dark:bg-zinc-900 flex items-center justify-center gap-4 print:border-none print:p-0">
+                <div className="print-label-info space-y-0.5 text-center">
+                  <div className="text-[10px] font-semibold text-foreground print:text-[7pt] print:text-black">{currentHospital?.name || "Hastane"}</div>
+                  <div className="text-sm font-mono font-bold print:text-[10pt] print:text-black">{tagCode}</div>
+                  <div className="flex justify-center">
+                    <Badge className={`text-[9px] print:text-[6pt] print:bg-transparent print:text-black print:border print:border-black ${WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.color}`}>
                       {WASTE_TYPES_CONFIG.find(t => t.code === selectedWasteType)?.label}
                     </Badge>
                   </div>
-                  <div className="text-[10px] text-muted-foreground font-mono print:text-[7pt] print:text-black">{locationCode}</div>
-                  <div className="text-[10px] text-muted-foreground print:text-[7pt] print:text-black">
+                  <div className="text-[9px] text-muted-foreground font-mono print:text-[6pt] print:text-black">{locationCode}</div>
+                  <div className="text-[9px] text-muted-foreground print:text-[6pt] print:text-black">
                     {maskName(getUserFullName())}
                   </div>
-                  <div className="text-[10px] text-muted-foreground print:text-[7pt] print:text-black">
+                  <div className="text-[9px] text-muted-foreground print:text-[6pt] print:text-black">
                     {tagDateTime ? formatDateTime(tagDateTime) : formatDateTime(new Date())}
                   </div>
                 </div>
                 <div className="print-label-qr flex-shrink-0">
                   <QRCodeSVG 
                     value={tagCode} 
-                    size={72} 
+                    size={100} 
                     level="M"
                   />
                 </div>
