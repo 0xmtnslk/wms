@@ -39,9 +39,8 @@ export async function registerRoutes(
   
   const isProduction = process.env.NODE_ENV === "production";
   
-  if (isProduction) {
-    app.set("trust proxy", 1);
-  }
+  // Trust proxy for HTTPS behind Nginx
+  app.set("trust proxy", 1);
 
   const PgSession = connectPgSimple(session);
   
@@ -57,7 +56,7 @@ export async function registerRoutes(
     cookie: {
       secure: isProduction,
       httpOnly: true,
-      sameSite: isProduction ? "strict" : "lax",
+      sameSite: "lax",
       maxAge: 24 * 60 * 60 * 1000
     }
   }));
