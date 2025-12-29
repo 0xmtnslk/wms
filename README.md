@@ -23,7 +23,7 @@ sudo -u postgres psql -c "CREATE USER wmsuser WITH PASSWORD 'SIFRE';"
 sudo -u postgres psql -c "CREATE DATABASE wmsdb OWNER wmsuser;"
 
 # 5. Projeyi klonla ve kur
-cd /var/www && git clone https://github.com/USER/wms.git && cd wms
+cd /var/www && git clone https://github.com/0xmtnslk/wms.git && cd wms
 npm install
 
 # 6. .env oluştur ve değişkenleri yükle
