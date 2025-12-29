@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { DonutChart } from "@/components/charts/donut-chart";
-import { BarChart } from "@/components/charts/bar-chart";
+import { HospitalDistribution } from "@/components/hospital-distribution";
 import { KPICard } from "@/components/kpi-card";
 import { StatusBadge } from "@/components/status-badge";
 import { WasteTypeBadge, WASTE_TYPES_CONFIG } from "@/components/waste-type-badge";
@@ -90,9 +90,10 @@ export default function DashboardPage() {
     hex: t.hex,
   })) || [];
 
-  const hospitalBarData = data?.byHospital.map(h => ({
-    label: h.code,
-    value: h.weight,
+  const hospitalDistData = data?.byHospital.map(h => ({
+    code: h.code,
+    name: h.name,
+    weight: h.weight,
     hex: h.hex,
   })) || [];
 
@@ -184,7 +185,15 @@ export default function DashboardPage() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <BarChart data={hospitalBarData} height={200} />
+              <HospitalDistribution 
+                data={hospitalDistData} 
+                onHospitalClick={(code) => {
+                  const hospital = data?.hospitals.find(h => h.code === code);
+                  if (hospital) {
+                    navigate(`/analytics/${hospital.id}`);
+                  }
+                }}
+              />
             </CardContent>
           </Card>
         )}
