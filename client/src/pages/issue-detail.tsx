@@ -2,7 +2,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRoute, useLocation } from "wouter";
 import { 
   ArrowLeft, CheckCircle2, Mail, MapPin, Calendar, User, 
-  AlertTriangle, Building2, Tag, Loader2, Image
+  AlertTriangle, Building2, Tag, Loader2, Image, Download
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -77,7 +77,7 @@ export default function IssueDetailPage() {
     }
   });
 
-  const handleSendEmail = async () => {
+  const generateOutlookEmail = () => {
     if (!issue) return;
 
     const locationText = issue.locationInfo 
@@ -89,85 +89,215 @@ export default function IssueDetailPage() {
       ? format(new Date(issue.reportedAt), "dd MMMM yyyy HH:mm", { locale: tr }) 
       : 'Bilinmiyor';
 
-    const statusColor = issue.isResolved ? '#10b981' : '#f59e0b';
     const statusText = issue.isResolved ? 'Cozuldu' : 'Acik';
-    const categoryColor = issue.category === 'segregation' ? '#e11d48' 
-      : issue.category === 'non_compliance' ? '#f59e0b'
-      : issue.category === 'technical' ? '#3b82f6' : '#64748b';
-
-    const htmlBody = `
-<div style="font-family: 'Segoe UI', Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-  <div style="background: linear-gradient(135deg, #1e293b 0%, #334155 100%); color: white; padding: 24px; border-radius: 8px 8px 0 0;">
-    <h1 style="margin: 0 0 8px 0; font-size: 20px;">Uygunsuzluk Bildirimi</h1>
-    <p style="margin: 0; opacity: 0.8; font-size: 14px;">${issue.hospitalName}</p>
-  </div>
-  <div style="background: #ffffff; padding: 24px; border: 1px solid #e2e8f0; border-top: none;">
-    <table style="width: 100%; border-collapse: collapse;">
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px; width: 120px;">Durum</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
-          <span style="display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; background: ${statusColor}; color: white;">${statusText}</span>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Mahal</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;"><strong>${locationText}</strong></td>
-      </tr>
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Etiket Kodu</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
-          <code style="background:#e2e8f0; padding:2px 8px; border-radius:4px; font-family:monospace;">${issue.tagCode || 'Belirtilmemis'}</code>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Kategori</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">
-          <span style="display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 12px; background: ${categoryColor}20; color: ${categoryColor}; border: 1px solid ${categoryColor}40;">${categoryLabels[issue.category] || issue.category}</span>
-        </td>
-      </tr>
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Bildiren</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">${issue.reportedByName}</td>
-      </tr>
-      <tr>
-        <td style="padding: 8px 16px 8px 0; color: #64748b; font-size: 14px;">Tarih</td>
-        <td style="padding: 8px 0; font-size: 14px; color: #1e293b;">${reportDate}</td>
-      </tr>
-    </table>
+    const statusBgColor = issue.isResolved ? '#10b981' : '#f59e0b';
     
-    <div style="margin-top: 20px;">
-      <div style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Aciklama</div>
-      <div style="background: #f8fafc; padding: 16px; border-radius: 8px; border-left: 4px solid #3b82f6;">
-        <p style="margin: 0; font-size: 14px; line-height: 1.6; color: #334155; white-space: pre-wrap;">${issue.description}</p>
-      </div>
-    </div>
-    
-    ${issue.photoUrl ? `
-    <div style="margin-top: 20px;">
-      <div style="font-size: 12px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px;">Fotograf</div>
-      <img src="${issue.photoUrl}" alt="Uygunsuzluk Fotografi" style="max-width: 100%; border-radius: 8px; border: 1px solid #e2e8f0;" />
-    </div>
-    ` : ''}
-  </div>
-  <div style="background: #f1f5f9; padding: 16px 24px; font-size: 12px; color: #64748b; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e2e8f0; border-top: none;">
-    Bu mail WMS - Stratejik Atik Yonetim Merkezi tarafindan olusturulmustur.
-  </div>
-</div>`.trim();
+    const categoryBgColors: Record<string, string> = {
+      segregation: '#fce7f3',
+      non_compliance: '#fef3c7', 
+      technical: '#dbeafe',
+      other: '#f1f5f9'
+    };
+    const categoryTextColors: Record<string, string> = {
+      segregation: '#be185d',
+      non_compliance: '#d97706',
+      technical: '#1d4ed8',
+      other: '#475569'
+    };
 
-    try {
-      const blob = new Blob([htmlBody], { type: 'text/html' });
-      const clipboardItem = new ClipboardItem({ 'text/html': blob });
-      await navigator.clipboard.write([clipboardItem]);
-      
-      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}`;
-      
-      toast({ 
-        title: "Icerik panoya kopyalandi", 
-        description: "Outlook acildiginda Ctrl+V ile yapistiriniz" 
-      });
-    } catch (err) {
-      const textContent = `
-UYGUNSUZLUK BILDIRIMI
+    const htmlBody = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<title>${subject}</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+</head>
+<body style="margin:0; padding:0; background-color:#f1f5f9; font-family:'Segoe UI',Arial,sans-serif;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f1f5f9;">
+<tr>
+<td align="center" style="padding:20px 10px;">
+
+<table role="presentation" width="600" cellspacing="0" cellpadding="0" border="0" style="background-color:#ffffff; border:1px solid #e2e8f0; border-radius:8px;">
+
+<!-- Header -->
+<tr>
+<td style="background-color:#1e293b; padding:24px 30px; border-radius:8px 8px 0 0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td>
+<h1 style="margin:0 0 4px 0; color:#ffffff; font-size:20px; font-weight:600;">Uygunsuzluk Bildirimi</h1>
+<p style="margin:0; color:#94a3b8; font-size:14px;">${issue.hospitalName}</p>
+</td>
+<td align="right" valign="top">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td style="background-color:${statusBgColor}; color:#ffffff; padding:6px 14px; border-radius:12px; font-size:12px; font-weight:600;">
+${statusText}
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- Info Card -->
+<tr>
+<td style="padding:24px 30px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background-color:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;">
+<tr>
+<td style="padding:20px;">
+
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Hastane</td>
+<td style="color:#1e293b; font-size:14px; font-weight:600;">${issue.hospitalName}</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Mahal</td>
+<td style="color:#1e293b; font-size:14px; font-weight:600;">${locationText}</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Kategori</td>
+<td>
+<span style="display:inline-block; background-color:${categoryBgColors[issue.category] || '#f1f5f9'}; color:${categoryTextColors[issue.category] || '#475569'}; padding:4px 10px; border-radius:4px; font-size:12px; font-weight:500;">
+${categoryLabels[issue.category] || issue.category}
+</span>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+${issue.tagCode ? `
+<tr>
+<td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Etiket Kodu</td>
+<td><code style="background-color:#e2e8f0; padding:3px 8px; border-radius:4px; font-family:Consolas,monospace; font-size:13px;">${issue.tagCode}</code></td>
+</tr>
+</table>
+</td>
+</tr>
+` : ''}
+<tr>
+<td style="padding:8px 0; border-bottom:1px solid #e2e8f0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Bildiren</td>
+<td style="color:#1e293b; font-size:14px;">${issue.reportedByName}</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:8px 0;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td width="120" style="color:#64748b; font-size:13px; vertical-align:top;">Bildirim Tarihi</td>
+<td style="color:#1e293b; font-size:14px;">${reportDate}</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+<!-- Description -->
+<tr>
+<td style="padding:0 30px 24px 30px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td style="padding-bottom:10px;">
+<span style="color:#64748b; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Aciklama</span>
+</td>
+</tr>
+<tr>
+<td style="background-color:#f8fafc; border-left:4px solid #3b82f6; padding:16px; border-radius:0 6px 6px 0;">
+<p style="margin:0; color:#334155; font-size:14px; line-height:1.6; white-space:pre-wrap;">${issue.description}</p>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+
+${issue.photoUrl ? `
+<!-- Photo -->
+<tr>
+<td style="padding:0 30px 24px 30px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+<tr>
+<td style="padding-bottom:10px;">
+<span style="color:#64748b; font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Fotograf</span>
+</td>
+</tr>
+<tr>
+<td style="background-color:#f1f5f9; padding:16px; border-radius:6px; text-align:center;">
+<img src="${issue.photoUrl}" alt="Uygunsuzluk Fotografı" style="max-width:100%; height:auto; border-radius:6px; border:1px solid #e2e8f0;" />
+</td>
+</tr>
+</table>
+</td>
+</tr>
+` : ''}
+
+<!-- Footer -->
+<tr>
+<td style="background-color:#f1f5f9; padding:16px 30px; border-top:1px solid #e2e8f0; border-radius:0 0 8px 8px; text-align:center;">
+<p style="margin:0; color:#64748b; font-size:12px;">Bu e-posta WMS - Stratejik Atik Yonetim Merkezi tarafindan olusturulmustur.</p>
+</td>
+</tr>
+
+</table>
+
+</td>
+</tr>
+</table>
+</body>
+</html>`;
+
+    const boundary = '----=_Part_0_' + Date.now();
+    const emlContent = `MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="${boundary}"
+Subject: =?UTF-8?B?${btoa(unescape(encodeURIComponent(subject)))}?=
+X-Unsent: 1
+X-Mailer: WMS Atik Yonetim Sistemi
+
+--${boundary}
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: base64
+
+${btoa(unescape(encodeURIComponent(`UYGUNSUZLUK BILDIRIMI
 =====================
 Hastane: ${issue.hospitalName}
 Mahal: ${locationText}
@@ -180,13 +310,37 @@ Durum: ${statusText}
 ACIKLAMA
 --------
 ${issue.description}
-${issue.photoUrl ? '\n[Fotograf sistemde mevcuttur]' : ''}
+${issue.photoUrl ? '\n[Fotograf ektedir]' : ''}
 ---
-WMS - Stratejik Atik Yonetim Merkezi
-      `.trim();
-      
-      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(textContent)}`;
-    }
+WMS - Stratejik Atik Yonetim Merkezi`)))}
+
+--${boundary}
+Content-Type: text/html; charset=UTF-8
+Content-Transfer-Encoding: base64
+
+${btoa(unescape(encodeURIComponent(htmlBody)))}
+
+--${boundary}--
+`;
+
+    const blob = new Blob([emlContent], { type: 'message/rfc822' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Uygunsuzluk_${issue.tagCode || issue.id}_${format(new Date(), 'yyyyMMdd')}.eml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    toast({ 
+      title: "E-posta dosyası indirildi", 
+      description: "Dosyayı çift tıklayarak Outlook'ta açabilirsiniz" 
+    });
+  };
+
+  const handleSendEmail = () => {
+    generateOutlookEmail();
   };
 
   if (isLoading) {
@@ -372,8 +526,8 @@ WMS - Stratejik Atik Yonetim Merkezi
           onClick={handleSendEmail}
           data-testid="button-send-email"
         >
-          <Mail className="h-4 w-4 mr-2" />
-          Mail Gonder
+          <Download className="h-4 w-4 mr-2" />
+          Outlook icin Indir
         </Button>
         
         {!issue.isResolved && (
