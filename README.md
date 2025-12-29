@@ -2,6 +2,43 @@
 
 Hastane atık toplama, tartım ve analiz sistemi.
 
+## Hızlı Özet (Deneyimli Kullanıcılar İçin)
+
+```bash
+# 1. Sistem hazırlık
+apt update && apt upgrade -y
+apt install -y curl wget git build-essential gnupg2 ufw nginx
+
+# 2. Node.js 20 + PM2
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt install -y nodejs && npm install -g pm2
+
+# 3. PostgreSQL 16
+sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /etc/apt/trusted.gpg.d/postgresql.gpg
+apt update && apt install -y postgresql-16
+
+# 4. Veritabanı oluştur
+sudo -u postgres psql -c "CREATE USER wmsuser WITH PASSWORD 'SIFRE';"
+sudo -u postgres psql -c "CREATE DATABASE wmsdb OWNER wmsuser;"
+
+# 5. Projeyi klonla ve kur
+cd /var/www && git clone https://github.com/USER/wms.git && cd wms
+npm install
+
+# 6. .env oluştur ve değişkenleri yükle
+# DATABASE_URL, SESSION_SECRET, NODE_ENV, PORT ayarla
+export $(grep -v '^#' .env | xargs)
+
+# 7. Build ve başlat
+npm run db:push && npm run build && npm run start  # Test
+pm2 start ecosystem.config.cjs && pm2 save && pm2 startup
+```
+
+Detaylı adımlar aşağıda...
+
+---
+
 ## Sistem Gereksinimleri
 
 - Ubuntu 22.04 LTS
@@ -163,9 +200,14 @@ GRANT ALL ON SCHEMA public TO wmsuser;
 ### PostgreSQL Bağlantı Testi
 
 ```bash
-# Bağlantıyı test et
-psql -U wmsuser -d wmsdb -h localhost -c "SELECT version();"
-# Şifre sorulduğunda yukarıda belirlediğiniz şifreyi girin
+# Bağlantıyı test et (şifre ile)
+PGPASSWORD="GuCLu_S1fre_123!" psql -U wmsuser -d wmsdb -h localhost -c "SELECT version();"
+```
+
+**Not:** Eğer "peer authentication failed" hatası alırsanız, `/etc/postgresql/16/main/pg_hba.conf` dosyasında `local all all peer` satırını `local all all md5` olarak değiştirin ve PostgreSQL'i yeniden başlatın:
+
+```bash
+systemctl restart postgresql
 ```
 
 ---
@@ -173,6 +215,9 @@ psql -U wmsuser -d wmsdb -h localhost -c "SELECT version();"
 ## 8. GitHub'dan Projeyi Çekme
 
 ```bash
+# www dizinini oluştur (yoksa)
+mkdir -p /var/www
+
 # www dizinine git
 cd /var/www
 
@@ -291,8 +336,14 @@ npm run start
 
 ### PM2 Ecosystem Dosyası Oluşturma
 
+**Önemli:** PM2, .env dosyasını otomatik okumaz. Ortam değişkenlerini ecosystem dosyasına doğrudan eklememiz gerekir.
+
 ```bash
-cat > /var/www/wms/ecosystem.config.cjs << 'EOF'
+# Önce .env değerlerini oku
+source /var/www/wms/.env 2>/dev/null || export $(grep -v '^#' /var/www/wms/.env | xargs)
+
+# Ecosystem dosyası oluştur (değişkenleri içine göm)
+cat > /var/www/wms/ecosystem.config.cjs << EOF
 module.exports = {
   apps: [{
     name: 'wms',
@@ -302,9 +353,10 @@ module.exports = {
     exec_mode: 'cluster',
     env: {
       NODE_ENV: 'production',
-      PORT: 5000
+      PORT: 5000,
+      DATABASE_URL: '${DATABASE_URL}',
+      SESSION_SECRET: '${SESSION_SECRET}'
     },
-    env_file: '/var/www/wms/.env',
     error_file: '/var/log/pm2/wms-error.log',
     out_file: '/var/log/pm2/wms-out.log',
     log_file: '/var/log/pm2/wms-combined.log',
@@ -314,6 +366,12 @@ module.exports = {
   }]
 };
 EOF
+```
+
+**Güvenlik Notu:** ecosystem.config.cjs dosyası hassas bilgiler içerir. İzinleri kısıtlayın:
+
+```bash
+chmod 600 /var/www/wms/ecosystem.config.cjs
 ```
 
 ### Log Dizini Oluşturma
@@ -513,6 +571,9 @@ Yeni güncellemeleri uygulamak için:
 
 ```bash
 cd /var/www/wms
+
+# .env dosyasındaki değişkenleri yükle
+export $(grep -v '^#' .env | xargs)
 
 # Değişiklikleri çek
 git pull origin main
