@@ -1,5 +1,6 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { 
   QrCode, Scale, AlertTriangle, ArrowLeft, ScanLine, 
   Printer, CheckCircle2, Keyboard, Save, Camera,
@@ -49,12 +50,29 @@ interface Location {
 
 export default function CollectorPage() {
   const [currentView, setCurrentView] = useState<CollectorView>("menu");
+  const [initialWeighTag, setInitialWeighTag] = useState<string | null>(null);
+  const searchString = useSearch();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchString);
+    const weighTag = params.get("weigh");
+    if (weighTag) {
+      setInitialWeighTag(weighTag);
+      setCurrentView("weigh");
+      window.history.replaceState({}, "", "/collector");
+    }
+  }, [searchString]);
+
+  const handleBackFromWeigh = () => {
+    setInitialWeighTag(null);
+    setCurrentView("menu");
+  };
 
   return (
     <div className="min-h-[calc(100vh-4rem)] flex flex-col">
       {currentView === "menu" && <CollectorMenu onNavigate={setCurrentView} />}
       {currentView === "collect" && <CollectView onBack={() => setCurrentView("menu")} />}
-      {currentView === "weigh" && <WeighView onBack={() => setCurrentView("menu")} />}
+      {currentView === "weigh" && <WeighView onBack={handleBackFromWeigh} initialTagCode={initialWeighTag} />}
       {currentView === "issue" && <IssueView onBack={() => setCurrentView("menu")} />}
     </div>
   );
@@ -415,10 +433,10 @@ function CollectView({ onBack }: { onBack: () => void }) {
   );
 }
 
-function WeighView({ onBack }: { onBack: () => void }) {
+function WeighView({ onBack, initialTagCode }: { onBack: () => void; initialTagCode?: string | null }) {
   const { toast } = useToast();
-  const [tagCode, setTagCode] = useState("");
-  const [tagSearch, setTagSearch] = useState("");
+  const [tagCode, setTagCode] = useState(initialTagCode || "");
+  const [tagSearch, setTagSearch] = useState(initialTagCode || "");
   const [weight, setWeight] = useState("");
   const [isManual, setIsManual] = useState(true);
   const [showQRScanner, setShowQRScanner] = useState(false);

@@ -321,14 +321,24 @@ export default function DashboardPage() {
                 {data.recentCollections.slice(0, 10).map((item) => (
                   <div 
                     key={item.id}
-                    className="flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 hover-elevate"
+                    className={`flex items-center justify-between gap-4 p-3 rounded-md bg-muted/50 ${item.status === 'pending' ? 'cursor-pointer hover-elevate' : ''}`}
                     data-testid={`collection-row-${item.id}`}
+                    onClick={() => {
+                      if (item.status === 'pending') {
+                        navigate(`/collector?weigh=${item.tagCode}`);
+                      }
+                    }}
                   >
                     <div className="flex items-center gap-3 min-w-0 flex-1">
                       <code className="text-xs font-mono bg-background px-2 py-1 rounded">
                         {item.tagCode}
                       </code>
                       <WasteTypeBadge code={item.wasteTypeCode} size="sm" />
+                      {item.status === 'pending' && (
+                        <Badge variant="outline" className="text-[10px] border-amber-500/50 text-amber-500">
+                          Bekliyor
+                        </Badge>
+                      )}
                       {!isHQ && item.hospitalName && (
                         <span className="text-xs text-muted-foreground hidden sm:inline">{item.hospitalName}</span>
                       )}
@@ -339,10 +349,13 @@ export default function DashboardPage() {
                           {format(new Date(item.collectedAt), "dd MMM HH:mm", { locale: tr })}
                         </span>
                       )}
-                      {item.weightKg !== null && (
+                      {item.weightKg !== null && item.status === 'completed' && (
                         <span className="text-sm font-mono font-medium">
                           {Number(item.weightKg).toFixed(2)} kg
                         </span>
+                      )}
+                      {item.status === 'pending' && (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
                       )}
                       <StatusBadge status={item.status as any} />
                     </div>
