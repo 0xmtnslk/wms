@@ -243,14 +243,59 @@ export default function IssuesPage() {
     );
   }
 
-  const openCount = issues?.filter(i => !i.isResolved).length || 0;
-  const resolvedCount = issues?.filter(i => i.isResolved).length || 0;
   const displayName = isViewingSpecificHospital 
     ? (viewingHospital?.name || "Hastane") 
     : (isHQ ? "Tüm hastaneler" : currentHospital?.name);
 
+  const openIssues = (filteredIssues || []).filter(i => !i.isResolved);
+  const resolvedIssues = (filteredIssues || []).filter(i => i.isResolved);
+
+  const IssueCard = ({ issue }: { issue: Issue }) => (
+    <div 
+      className="flex items-start gap-3 p-3 rounded-md bg-muted/50 hover-elevate cursor-pointer"
+      onClick={() => navigate(`/issue/${issue.id}`)}
+      data-testid={`issue-row-${issue.id}`}
+    >
+      <div className={`p-2 rounded-md shrink-0 ${issue.isResolved ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
+        {issue.isResolved ? (
+          <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+        ) : (
+          <AlertTriangle className="h-4 w-4 text-amber-400" />
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5 mb-1">
+          <Badge variant="outline" className={`text-[10px] ${categoryColors[issue.category]}`}>
+            {categoryLabels[issue.category] || issue.category}
+          </Badge>
+          {issue.tagCode && (
+            <code className="text-[10px] font-mono bg-background px-1.5 py-0.5 rounded">
+              {issue.tagCode}
+            </code>
+          )}
+        </div>
+        <p className="text-sm line-clamp-2">{issue.description}</p>
+        <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground flex-wrap">
+          {!isViewingSpecificHospital && isHQ && (
+            <span className="flex items-center gap-1">
+              <Building2 className="h-3 w-3" />
+              {issue.hospitalName}
+            </span>
+          )}
+          <span>{format(new Date(issue.reportedAt), "d MMM HH:mm", { locale: tr })}</span>
+          {issue.photoUrl && (
+            <span className="flex items-center gap-1">
+              <Camera className="h-3 w-3" />
+            </span>
+          )}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+    </div>
+  );
+
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-4 animate-in fade-in duration-500">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3">
           {isViewingSpecificHospital && (
@@ -268,114 +313,89 @@ export default function IssuesPage() {
             <p className="text-muted-foreground text-sm">{displayName}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
-            {openCount} Açık
-          </Badge>
-          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
-            {resolvedCount} Çözüldü
-          </Badge>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 w-full sm:w-48"
+              data-testid="input-search-issues"
+            />
+          </div>
+          <Select value={filterCategory} onValueChange={setFilterCategory}>
+            <SelectTrigger className="w-full sm:w-40" data-testid="select-filter-category">
+              <SelectValue placeholder="Kategori" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Tüm Kategoriler</SelectItem>
+              <SelectItem value="segregation">Ayrıştırma Hatası</SelectItem>
+              <SelectItem value="non_compliance">Uygunsuzluk</SelectItem>
+              <SelectItem value="technical">Teknik Sorun</SelectItem>
+              <SelectItem value="other">Diğer</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Etiket, açıklama veya bildiren..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-issues"
-              />
-            </div>
-            <div className="flex gap-2">
-              <Select value={filterCategory} onValueChange={setFilterCategory}>
-                <SelectTrigger className="w-40" data-testid="select-filter-category">
-                  <SelectValue placeholder="Kategori" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tüm Kategoriler</SelectItem>
-                  <SelectItem value="segregation">Ayrıştırma Hatası</SelectItem>
-                  <SelectItem value="non_compliance">Uygunsuzluk</SelectItem>
-                  <SelectItem value="technical">Teknik Sorun</SelectItem>
-                  <SelectItem value="other">Diğer</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger className="w-32" data-testid="select-filter-status">
-                  <SelectValue placeholder="Durum" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
-                  <SelectItem value="open">Açık</SelectItem>
-                  <SelectItem value="resolved">Çözüldü</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {filteredIssues && filteredIssues.length > 0 ? (
-            <div className="space-y-2">
-              {filteredIssues.map((issue) => (
-                <div 
-                  key={issue.id}
-                  className="flex items-start gap-4 p-4 rounded-md bg-muted/50 hover-elevate cursor-pointer"
-                  onClick={() => navigate(`/issue/${issue.id}`)}
-                  data-testid={`issue-row-${issue.id}`}
-                >
-                  <div className={`p-2 rounded-md ${issue.isResolved ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
-                    {issue.isResolved ? (
-                      <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-                    ) : (
-                      <AlertTriangle className="h-5 w-5 text-amber-400" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <Badge variant="outline" className={categoryColors[issue.category]}>
-                        {categoryLabels[issue.category] || issue.category}
-                      </Badge>
-                      {issue.tagCode && (
-                        <code className="text-xs font-mono bg-background px-2 py-0.5 rounded">
-                          {issue.tagCode}
-                        </code>
-                      )}
-                      {!isViewingSpecificHospital && isHQ && (
-                        <span className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />
-                          {issue.hospitalName}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-sm line-clamp-2">{issue.description}</p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                      <span>{issue.reportedByName}</span>
-                      <span>{format(new Date(issue.reportedAt), "d MMM yyyy HH:mm", { locale: tr })}</span>
-                      {issue.photoUrl && (
-                        <span className="flex items-center gap-1">
-                          <Camera className="h-3 w-3" />
-                          Fotoğraf
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <AlertTriangle className="h-12 w-12 mb-4 opacity-30" />
-              <p className="text-lg font-medium">Kayıt bulunamadı</p>
-              <p className="text-sm">Filtrelerinizi değiştirmeyi deneyin</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                Açık Bildirimler
+              </div>
+              <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/30">
+                {openIssues.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {openIssues.length > 0 ? (
+              <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+                {openIssues.map((issue) => (
+                  <IssueCard key={issue.id} issue={issue} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <CheckCircle2 className="h-8 w-8 mb-2 opacity-30 text-emerald-500" />
+                <p className="text-sm">Açık bildirim yok</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm font-medium flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                Çözülen Bildirimler
+              </div>
+              <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                {resolvedIssues.length}
+              </Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {resolvedIssues.length > 0 ? (
+              <div className="space-y-2 max-h-[calc(100vh-280px)] overflow-y-auto pr-1">
+                {resolvedIssues.map((issue) => (
+                  <IssueCard key={issue.id} issue={issue} />
+                ))}
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                <AlertTriangle className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">Çözülen bildirim yok</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       <Dialog open={!!selectedIssue} onOpenChange={() => setSelectedIssue(null)}>
         <DialogContent className="max-w-lg">
