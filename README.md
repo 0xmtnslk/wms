@@ -222,7 +222,7 @@ mkdir -p /var/www
 cd /var/www
 
 # Git repository'sini klonla (kendi repository URL'nizi kullanın)
-git clone https://github.com/KULLANICI_ADINIZ/wms.git
+git clone https://github.com/0xmtnslk/wms.git
 
 # Proje dizinine gir
 cd wms
